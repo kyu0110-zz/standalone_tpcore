@@ -132,7 +132,7 @@ main.o                        : main.F90          CMN_SIZE_mod.o 	\
 				tpcore_fvdas_mod.o			\
 				pjc_pfix_mod.o	  grid_mod.o		\
 				initialize_mod.o  advection_mod.o	\
-				diagnostic_mod.o
+				diagnostic_mod.o  convection_mod.o
 pjc_pfix_mod.o		      : pjc_pfix_mod.F	  CMN_SIZE_mod.o	\
 				CMN_GCTM_mod.o	  error_mod.o		\
 				pressure_mod.o	  grid_mod.o
@@ -147,6 +147,9 @@ advection_mod.o		      : advection_mod.F90 	pressure_mod.o	\
 				pjc_pfix_mod.o
 chem_mod.o				  : chem_mod.F90			grid_mod.o	\
 				CMN_SIZE_mod.o		error_mod.o
+convection_mod.o		  : convection_mod.F					\
+				error_mod.o		CMN_SIZE_mod.o		CMN_GCTM_mod.o	 \
+				grid_mod.o		time_mod.o			gigc_errcode_mod.o 
 
 #=============================================================================
 #  Other Makefile Commands

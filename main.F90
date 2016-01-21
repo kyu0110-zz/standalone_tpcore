@@ -82,6 +82,7 @@
     REAL*8, ALLOCATABLE   :: t_avg(:,:,:)    ! time avg tracer conc
     REAL*8, ALLOCATABLE   :: wzg_AVG(:,:,:)          ! time avg omega
     REAL*8, ALLOCATABLE   :: wzt_AVG(:,:,:)         ! time avg tpcore omega
+    REAL*8, ALLOCATABLE   :: TRACERFLUX(:,:,:)      ! mass flux of tracer
 
     !============================================================================
     ! Code begins here
@@ -110,11 +111,13 @@
     ALLOCATE( wzg_AVG(IIPAR, JJPAR, LLPAR) )
 #if defined( GRID4x5 ) || defined( GRID2x25 )
     ALLOCATE( wzgneg(IIPAR, JJPAR, LLPAR) )
+    ALLOCATE( tracerflux(IIPAR, JJPAR, LLPAR))
 #endif
 
     ! Select timestep based on grid
 #if defined( GRID4x5 )  
     DT = 1800d0
+    !DT = 300d0
 #elif defined( GRID2x25 ) 
     DT = 300d0
     !DT = 900d0
@@ -211,6 +214,11 @@
       CALL DO_EMISS(DT, t_inst, PFLT)
     print*, 'after emission', sum(t_inst)
 
+#if defined(GRID4x5) || defined(GRID2x25)
+      ! compute flux before doign transport
+      !CALL COMPUTE_FLUX(DT, wzg, wzgneg, t_inst, PS2, TCVV, TRACERFLUX)
+#endif
+
       !============================================================================
       ! Do transport
       !============================================================================
@@ -222,10 +230,15 @@
       ! ==========================================================================
 #if defined(GRID4x5) || defined(GRID2x25)
 
-      !CALL DO_FLUX_EXCHANGE(60d0, wzg, wzgneg, t_inst, PS2, TCVV )
+      CALL COMPUTE_FLUX(DT, wzt, wzgneg, t_inst, PS2, TCVV, TRACERFLUX)
+      CALL DO_FLUX_EXCHANGE(DT, t_inst, PS2, TCVV, TRACERFLUX )
 
 #endif
 
+      ! ==========================================================================
+      ! Do convection
+      ! ==========================================================================
+      CALL DO_CONVECTION(DT, CMFMC)
 
       !===========================================================================
       ! Do radioactive decay of species

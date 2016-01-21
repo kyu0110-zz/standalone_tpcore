@@ -453,11 +453,11 @@ CONTAINS
 
     ! Construct complete file path
 #if defined( GRID4x5 )
-    nc_file = TRIM( '/n/regal/jacob_lab/kyu/OMEGA/4x5/' ) // TRIM( nc_file )
+    nc_file = TRIM( '/n/regal/jacob_lab/kyu/MAX_OMEGA/4x5/' ) // TRIM( nc_file )
 #elif defined( GRID2x25 )
-    nc_file = TRIM( '/n/regal/jacob_lab/kyu/OMEGA/2x25/' ) // TRIM(nc_file)
+    nc_file = TRIM( '/n/regal/jacob_lab/kyu/MAX_OMEGA/2x25/' ) // TRIM(nc_file)
 #elif defined(  GRID025x03125 )
-    nc_file = TRIM( '/n/regal/jacob_lab/kyu/OMEGA/025/' ) // TRIM(nc_file)
+    nc_file = TRIM( '/n/regal/jacob_lab/kyu/MAX_OMEGA/025/' ) // TRIM(nc_file)
 #endif
 
     ! Open netCDF file

@@ -23,6 +23,7 @@
 !
       PUBLIC  :: INIT_ADVECTION
       PUBLIC  :: DO_ADVECTION
+      PUBLIC  :: COMPUTE_FLUX
       PUBLIC  :: DO_FLUX_EXCHANGE
       PUBLIC  :: GET_AIR_MASS
 !
@@ -342,14 +343,14 @@
 
         print*, 'after residual correction', sum(STT)         
       END SUBROUTINE DO_ADVECTION
-!EOC 
+!EOC
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE DO_FLUX_EXCHANGE( DT, OMEGA, NEGOMEGA, &
-                              STT, PS, TCVV)
+      SUBROUTINE COMPUTE_FLUX( DT, OMEGA, NEGOMEGA, &
+                              STT, PS, TCVV, TRACERFLUX)
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
@@ -363,24 +364,23 @@
         REAL*8,         INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
         REAL*8,         INTENT(IN)      :: TCVV
         REAL*8,         INTENT(IN)      :: PS(:,:)
+        REAL*8,         INTENT(OUT)     :: TRACERFLUX(IIPAR, JJPAR, LLPAR)
 ! !OUTPUT PARAMETERS:
 !
 ! !REVISION HISTORY:
 ! !LOCAL VARIABLES:
 !
         INTEGER         :: I, J, K, N, L
-        INTEGER         :: internal_timestep
         REAL*8          :: ZMASS(IIPAR, JJPAR, LLPAR)
-        REAL*8          :: Q_NEW(IIPAR, JJPAR, LLPAR)
         REAL*8          :: AREA_M2(IIPAR,JJPAR)
-        REAL*8          :: TRACERFLUX(IIPAR, JJPAR, LLPAR)
-        REAL*8          :: AD(IIPAR, JJPAR, LLPAR)
+        REAL*8          :: AD
+        REAL*8          :: BOXMASS
+        REAL*8          :: r
 
 ! START EXECUTION
         ! Print info
-        WRITE( 6, '(a)' ) 'Performing vertical flux exchange'
+        WRITE( 6, '(a)' ) 'Compute fluxes'
 
-        print*, 'at start of flux ex', sum(STT)
         ! Compute surface area of grid box
 !$OMP PARALLEL DO       &
 !$OMP DEFAULT( SHARED ) &
@@ -392,7 +392,7 @@
         ENDDO
 !$OMP END PARALLEL DO      
 
-        print*, 'area', maxval(area_m2) 
+
         ! up/down mass flux [kg air / m^2]
         ! If the net omega is in the same direction as negomega, the
         ! additional flux ist he difference between the two. If the next
@@ -403,13 +403,12 @@
         WHERE ( OMEGA .ge. 0d0 ) & 
          ZMASS = ( NEGOMEGA / -9.81) * DT
 
-        print*, 'zmass', maxval(zmass)
-        
         ! UP/DOWN mass flux [kg air]
         DO L = 1, LLPAR
             ZMASS(:,:,L) = ZMASS(:,:,L) * AREA_M2(:,:)
         ENDDO
 
+        print*, 'sum ZMASS', sum(ZMASS)
             ! Additional mass flux of each tracer is the mass fluxo f
             ! air multiplied by the mixign ratio of the tracer divided
             ! by the ratio of molec w eight of tracer to the molec
@@ -417,7 +416,73 @@
             ! [kg tracer] = [kg air] * [mol tracer/mol air] * 
             !               [kg tracer/mol tracer * mol air/kg air]
             TRACERFLUX(:,:,:) = ZMASS(:,:,:) * STT(:,:,:) / TCVV
-        print*, 'max tracerflux', maxval(tracerflux)
+
+!$OMP PARALLEL DO       &
+!$OMP DEFAULT( SHARED ) &
+!$OMP PRIVATE( I, J, L, AD, BOXMASS)
+        ! tracerflux cannot be more than half the mass that's currently
+        ! in the box
+        DO L = 1, LLPAR
+        DO J = 1, JJPAR
+        DO I = 1, IIPAR
+            AD = GET_AIR_MASS(I, J, L, PS(I,J))
+            BOXMASS = 0.5 * STT(I,J,L) * AD / TCVV
+            TRACERFLUX(I,J,L) = min(TRACERFLUX(I,J,L), BOXMASS)
+        ENDDO
+        ENDDO
+        ENDDO
+!$OMP END PARALLEL DO
+
+        ! add randomness
+!$OMP PARALLEL DO        &
+!$OMP DEFAULT( SHARED )  &
+!$OMP PRIVATE( I, J, L ) 
+        DO L = 1, LLPAR
+        DO J = 1, JJPAR
+        DO I = 1, IIPAR
+            CALL RANDOM_NUMBER(r)
+            TRACERFLUX(I,J,L) = TRACERFLUX(I,J,L) !* 2.0*(0.5 + r)
+        ENDDO
+        ENDDO
+        ENDDO
+!$OMP END PARALLEL DO
+
+        print*, 'max tracerflux', maxval(TRACERFLUX)
+       END SUBROUTINE COMPUTE_FLUX 
+!EOC
+
+!------------------------------------------------------------------------------
+!                  GEOS-Chem Global Chemical Transport Model                  !
+!------------------------------------------------------------------------------
+!BOC
+! !INTERFACE:
+      SUBROUTINE DO_FLUX_EXCHANGE( DT, STT, PS, TCVV, TRACERFLUX)
+! !USES:
+        USE CMN_GCTM_MOD
+        USE CMN_SIZE_MOD
+        USE ERROR_MOD
+        USE GRID_MOD
+! !INPUT PRAMETERS: 
+! 
+        REAL*8,         INTENT(IN)      :: DT
+        REAL*8,         INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
+        REAL*8,         INTENT(IN)      :: TCVV
+        REAL*8,         INTENT(IN)      :: PS(:,:)
+        REAL*8,         INTENT(IN)      :: TRACERFLUX(IIPAR,JJPAR,LLPAR)
+! !OUTPUT PARAMETERS:
+!
+! !REVISION HISTORY:
+! !LOCAL VARIABLES:
+!
+        INTEGER         :: I, J, K, N, L
+        REAL*8          :: Q_NEW(IIPAR, JJPAR, LLPAR)
+        REAL*8          :: AD(IIPAR, JJPAR, LLPAR)
+
+! START EXECUTION
+        ! Print info
+        WRITE( 6, '(a)' ) 'Performing vertical flux exchange'
+
+        print*, 'at start of flux ex', sum(STT)
 
 !$OMP PARALLEL DO           &
 !$OMP DEFAULT( SHARED )     &
@@ -436,7 +501,7 @@
         Q_NEW(:,:,1) = (STT(:,:,1) * AD(:,:,1) / TCVV) - TRACERFLUX(:,:,1) + &
                            TRACERFLUX(:,:,2)
 
-        print*, 'maxval qnew', MAXval(Q_NEW)
+        print*, 'maxval qnew', MAXval(Q_NEW(:,:,1))
         DO L = 2, LLPAR-1
 
             ! New amass = mass currently in cell - 2 * mass out (one
