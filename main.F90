@@ -20,6 +20,7 @@
     USE ERROR_MOD               ! borrowed from GEOS-Chem
     USE read_input_mod,        ONLY : GeosFp_Read_A3dyn, GeosFp_Read_I3
     USE read_input_mod,        ONLY : restart_read, geosfp_read_omega 
+    USE read_input_mod,        ONLY : read_wc
     USE TPCORE_FVDAS_MOD,       ONLY : Tpcore_FvDas 
     USE PRESSURE_MOD
     USE PJC_PFIX_MOD
@@ -83,6 +84,9 @@
     REAL*8, ALLOCATABLE   :: wzg_AVG(:,:,:)          ! time avg omega
     REAL*8, ALLOCATABLE   :: wzt_AVG(:,:,:)         ! time avg tpcore omega
     REAL*8, ALLOCATABLE   :: TRACERFLUX(:,:,:)      ! mass flux of tracer
+    REAL*8, ALLOCATABLE   :: fz(:,:,:)      ! mass flux of tracer
+    REAL*8, ALLOCATABLE   :: wc(:,:,:)      ! mass flux of tracer
+    REAL*8, ALLOCATABLE   :: wclarge(:,:,:)      ! mass flux of tracer
 
     !============================================================================
     ! Code begins here
@@ -108,16 +112,19 @@
     ALLOCATE( PS2(IIPAR, JJPAR) )
     ALLOCATE( PFLT(IIPAR, JJPAR) )
     ALLOCATE( wzt_AVG(IIPAR, JJPAR, LLPAR) )
-    ALLOCATE( wzg_AVG(IIPAR, JJPAR, LLPAR) )
+    ALLOCATE( wzg_AVG(IIPAR, JJPAR, LLPAR ) )
+    ALLOCATE( wc(IIPAR, JJPAR, LLPAR))
+    ALLOCATE( fz(IIPAR, JJPAR, LLPAR))
 #if defined( GRID4x5 ) || defined( GRID2x25 )
     ALLOCATE( wzgneg(IIPAR, JJPAR, LLPAR) )
     ALLOCATE( tracerflux(IIPAR, JJPAR, LLPAR))
+    ALLOCATE( wclarge(IIPAR, JJPAR, LLPAR))
 #endif
 
     ! Select timestep based on grid
 #if defined( GRID4x5 )  
-    DT = 1800d0
-    !DT = 300d0
+    !DT = 1800d0
+    DT = 300d0
 #elif defined( GRID2x25 ) 
     DT = 300d0
     !DT = 900d0
@@ -145,7 +152,7 @@
 
     ! TCVV is MW air / MW tracer. Set to 1 for tracer that has the same MW as air
     !TCVV = 1.0
-    TCVV = 28.97 / 222d0
+    TCVV = 28.97 / 222.0d0
 
     ! Set up grid
     CALL SETUP_GRID
@@ -198,6 +205,7 @@
 #if defined(GRID4x5) || defined(GRID2x25)
         ! Read in omegas 
         CALL geosfp_read_omega(A3_TIME(1), A3_TIME(2), wzgneg)
+        
 #endif
 
      ENDIF
@@ -222,23 +230,42 @@
       !============================================================================
       ! Do transport
       !============================================================================
-      CALL DO_ADVECTION(LFILL, DT, PFLT, PS2, U, V, t_inst, TCVV, wzt, RC)
+
+!#if defined(GRID025x03125) 
+      ! write out wc
+      wclarge = (wzt/9.81d0) * (t_inst / TCVV)
+
+      DDATE = GET_NYMD()
+      WRITE(fname, '(i8)') DDATE
+      DDATE = GET_NHMS()
+      WRITE(ffname, '(i6.6)') DDATE
+      fname = TRIM(fname) // TRIM(ffname)
+      fname = TRIM(fname)//'.nc'
+      fname = '/n/regal/jacob_lab/kyu/wc/4x5_coarse/' // TRIM(fname) 
+      CALL WRITE_wc(TRIM(fname), DDATE/10000, &
+                MOD(DDATE, 10000)/100, MOD(DDATE, 100), GET_HOUR(), & 
+                GET_MINUTE(), GET_SECOND(), wclarge )
+!#else 
+      ! read in wc
+      CALL read_wc(GET_NYMD(), GET_NHMS(), wc)
+      print*, 'sum wc'
+
+!      wclarge = (wzt / 9.81d0) * (t_inst / TCVV)
+!#endif
+
+      CALL DO_ADVECTION(LFILL, DT, PFLT, PS2, U, V, t_inst, TCVV, wzt, fz, RC)
     print*, 'after advection', sum(t_inst)
 
       ! ==========================================================================
       ! Do flux echange
       ! ==========================================================================
 #if defined(GRID4x5) || defined(GRID2x25)
+        print*, 'sum wc 4x5', sum((wzt / 9.81 ) * (t_inst / TCVV) )
 
-      CALL COMPUTE_FLUX(DT, wzt, wzgneg, t_inst, PS2, TCVV, TRACERFLUX)
-      CALL DO_FLUX_EXCHANGE(DT, t_inst, PS2, TCVV, TRACERFLUX )
+      CALL COMPUTE_FLUX(DT, wc, wclarge, t_inst, PS2, TCVV, TRACERFLUX, fz)
+      CALL DO_WC_TRANSPORT(DT, t_inst, PS2, TCVV, TRACERFLUX )
 
 #endif
-
-      ! ==========================================================================
-      ! Do convection
-      ! ==========================================================================
-      CALL DO_CONVECTION(DT, CMFMC)
 
       !===========================================================================
       ! Do radioactive decay of species

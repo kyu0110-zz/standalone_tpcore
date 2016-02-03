@@ -380,7 +380,7 @@ CONTAINS
                            ak,       bk,       u,        v,       ps1,      &
                            ps2,      ps,       q,        iord,    jord,     &
                            kord,     n_adj,    XMASS,    YMASS,   FILL,     &
-                           AREA_M2,  TCVV,     wz )
+                           AREA_M2,  TCVV,     wz,       fz )
 !
 ! !USES:
 !
@@ -465,6 +465,7 @@ CONTAINS
 !
     ! "Predicted" surface pressure [hPa]
     REAL*8,  INTENT(OUT)   :: ps(IM,JFIRST:JLAST)  
+    REAL*8,  INTENT(INOUT)   :: fz  (:,:,:)
 !
 ! !AUTHOR:
 !   Original code from Shian-Jiann Lin, DAO) 
@@ -543,7 +544,6 @@ CONTAINS
     ! (ccc, 4/1/09) 
     REAL*8             :: fx (im, jm, km)
     REAL*8             :: fy (im, jm+1, km)           ! one more for edges
-    REAL*8             :: fz  (im, jm, km)
     REAL*8             :: qtemp (im, jm, km)
     REAL*8             :: DTC(IM,JM,KM)               ! up/down flux temp array
     REAL*8             :: TRACE_DIFF                  ! up/down flux variable
@@ -685,7 +685,7 @@ CONTAINS
            1, im, 1, jm, 1, jm, j1p, j2p, &
            1, im, 1, jm, 1, km)
     
-    
+   
     if (advec_consrv_opt == 0) then
           
        !$OMP PARALLEL DO           &
@@ -727,7 +727,7 @@ CONTAINS
 
     ! Calculate surf. pressure at t+dt. (ccc, 11/20/08)
     ps = ak(1)+sum(delp2,dim=3)
-         
+        
 !--------------------------------------------------------
 ! For time optimization : we parallelize over tracers and
 ! we loop over the levels outside horizontal transport 
@@ -759,7 +759,7 @@ CONTAINS
      ! ----------------------------------------------------
      !  Add advective form E-W operator for E-W cross terms.
      ! ----------------------------------------------------
-        
+       
      ! ==============
        call Xadv_Dao2  &
      ! ==============
@@ -864,7 +864,7 @@ CONTAINS
        !   dq1 (inout) : species density (mb)
        !   q (in) : species concentration (mixing ratio)
        !.sds
-         
+        
          
 
        if (FILL) then
@@ -5694,7 +5694,7 @@ CONTAINS
        do il = i1, i2
           dca(il,ik+1) = wza(il,ik) * dca(il,ik+1)
           !.sds.. save vertical flux for species as diagnostic
-          fz(il,ij,ik+1) = dca(il,ik+1)
+          fz(il,ij,ik+1) = dca(il,ik+1) 
        end do
        end do
 

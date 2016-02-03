@@ -140,12 +140,18 @@ CONTAINS
 #if defined(GRID4x5)
     DLON = 5.0d0
     DLAT = 4.0d0
+    DLAT(:,1,:) = 2.0d0
+    DLAT(:,JM_WORLD,:) = 2.0d0
 #elif defined(GRID2x25)
     DLON = 2.5d0
     DLAT = 2.0d0
+    DLAT(:,1,:) = 1.0d0
+    DLAT(:,JM_WORLD,:) = 1.0d0
 #elif defined(GRID025x03125)
     DLON = 0.3125d0
     DLAT = 0.25d0  
+    DLAT(:,1,:) = 0.125d0
+    DLAT(:,JM_WORLD,:) = 0.125d0
 #endif
 
     CALL COMPUTE_GRID(I1=1, I2=IIPAR, J1=1, J2=JJPAR, JSP=1, JNP=JM_WORLD, &

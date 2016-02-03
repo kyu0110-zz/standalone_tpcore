@@ -25,6 +25,7 @@
       PUBLIC  :: DO_ADVECTION
       PUBLIC  :: COMPUTE_FLUX
       PUBLIC  :: DO_FLUX_EXCHANGE
+      PUBLIC  :: DO_WC_TRANSPORT
       PUBLIC  :: GET_AIR_MASS
 !
 ! !PRIVATE MEMBER FUNCTIONS:
@@ -173,7 +174,7 @@
 !BOC
 ! !INTERFACE:
       SUBROUTINE DO_ADVECTION(LFILL, DT, PS, PS2, U, V, STT, &
-                              TCVV, wz, RC)
+                              TCVV, wz, fz, RC)
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
@@ -194,6 +195,7 @@
 !
         INTEGER,        INTENT(OUT)     :: RC
         REAL*8,         INTENT(OUT)     :: wz(IIPAR,JJPAR,LLPAR)
+        REAL*8,         INTENT(INOUT)     :: fz(IIPAR,JJPAR,LLPAR)
 ! !REVISION HISTORY:
 ! !LOCAL VARIABLES:
 !
@@ -278,7 +280,7 @@
         CALL TPCORE_FVDAS( dt, Re, IIPAR, JJPAR, LLPAR, JFIRST, JLAST, &
                            0, 0, 1, p_Ap, p_Bp, p_U, p_V, P_TP1, &
                            P_TP2,  P_TEMP, p_STT, IORD, JORD, KORD, 0, &
-                           p_XMASS, p_YMASS, LFILL, A_M2, TCVV, wz )
+                           p_XMASS, p_YMASS, LFILL, A_M2, TCVV, wz, fz )
 
         print*, 'after tpcore', sum(STT)
         ! Flip wz
@@ -349,8 +351,8 @@
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE COMPUTE_FLUX( DT, OMEGA, NEGOMEGA, &
-                              STT, PS, TCVV, TRACERFLUX)
+      SUBROUTINE COMPUTE_FLUX( DT, wc, wclarge, &
+                              STT, PS, TCVV, TRACERFLUX, fz)
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
@@ -359,23 +361,23 @@
 ! !INPUT PRAMETERS: 
 ! 
         REAL*8,         INTENT(IN)      :: DT
-        REAL*8,         INTENT(IN)      :: OMEGA(IIPAR,JJPAR,LLPAR)
-        REAL*8,         INTENT(IN)      :: NEGOMEGA(IIPAR,JJPAR,LLPAR)
+        REAL*8,         INTENT(IN)   :: wc(IIPAR,JJPAR,LLPAR)
+        REAL*8,         INTENT(IN)   :: wclarge(IIPAR,JJPAR,LLPAR)
         REAL*8,         INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
         REAL*8,         INTENT(IN)      :: TCVV
         REAL*8,         INTENT(IN)      :: PS(:,:)
-        REAL*8,         INTENT(OUT)     :: TRACERFLUX(IIPAR, JJPAR, LLPAR)
+        REAL*8,         INTENT(INOUT)   :: TRACERFLUX(IIPAR, JJPAR, LLPAR)
+        REAL*8,         INTENT(IN)      :: fz(IIPAR, JJPAR, LLPAR)
 ! !OUTPUT PARAMETERS:
 !
 ! !REVISION HISTORY:
 ! !LOCAL VARIABLES:
 !
         INTEGER         :: I, J, K, N, L
-        REAL*8          :: ZMASS(IIPAR, JJPAR, LLPAR)
         REAL*8          :: AREA_M2(IIPAR,JJPAR)
         REAL*8          :: AD
         REAL*8          :: BOXMASS
-        REAL*8          :: r
+        REAL*8          :: fz2(IIPAR, JJPAR, LLPAR)
 
 ! START EXECUTION
         ! Print info
@@ -392,31 +394,13 @@
         ENDDO
 !$OMP END PARALLEL DO      
 
+        print*, 'sum wc', sum(wc)
 
-        ! up/down mass flux [kg air / m^2]
-        ! If the net omega is in the same direction as negomega, the
-        ! additional flux ist he difference between the two. If the next
-        ! flux is in the opposite direction, the additional flux is just
-        ! negomega.
-        WHERE ( OMEGA .lt. 0d0 ) & 
-         ZMASS = ((NEGOMEGA / -9.81) * DT) - ((OMEGA / -9.81) * DT)
-        WHERE ( OMEGA .ge. 0d0 ) & 
-         ZMASS = ( NEGOMEGA / -9.81) * DT
-
-        ! UP/DOWN mass flux [kg air]
         DO L = 1, LLPAR
-            ZMASS(:,:,L) = ZMASS(:,:,L) * AREA_M2(:,:)
+            TRACERFLUX(:,:,L) = (wc(:,:,L) - wclarge(:,:,L)) * AREA_M2(:,:) * DT
         ENDDO
 
-        print*, 'sum ZMASS', sum(ZMASS)
-            ! Additional mass flux of each tracer is the mass fluxo f
-            ! air multiplied by the mixign ratio of the tracer divided
-            ! by the ratio of molec w eight of tracer to the molec
-            ! weight of air
-            ! [kg tracer] = [kg air] * [mol tracer/mol air] * 
-            !               [kg tracer/mol tracer * mol air/kg air]
-            TRACERFLUX(:,:,:) = ZMASS(:,:,:) * STT(:,:,:) / TCVV
-
+        print*, 'sum fz', sum(fz)
 !$OMP PARALLEL DO       &
 !$OMP DEFAULT( SHARED ) &
 !$OMP PRIVATE( I, J, L, AD, BOXMASS)
@@ -426,31 +410,22 @@
         DO J = 1, JJPAR
         DO I = 1, IIPAR
             AD = GET_AIR_MASS(I, J, L, PS(I,J))
-            BOXMASS = 0.5 * STT(I,J,L) * AD / TCVV
-            TRACERFLUX(I,J,L) = min(TRACERFLUX(I,J,L), BOXMASS)
+            BOXMASS = STT(I,J,L) * AD / TCVV
+!            fz2(I,J,L) = fz(I,J,L) * AD / TCVV
+!            TRACERFLUX(I,J,L) = wc - wclarge
+            !IF (min(abs(TRACERFLUX(I,J,L)), BOXMASS) < abs(TRACERFLUX(I,J,L))) THEN
+            !    TRACERFLUX(I,J,L) = BOXMASS
+            !ENDIF
         ENDDO
         ENDDO
         ENDDO
 !$OMP END PARALLEL DO
 
-        ! add randomness
-!$OMP PARALLEL DO        &
-!$OMP DEFAULT( SHARED )  &
-!$OMP PRIVATE( I, J, L ) 
-        DO L = 1, LLPAR
-        DO J = 1, JJPAR
-        DO I = 1, IIPAR
-            CALL RANDOM_NUMBER(r)
-            TRACERFLUX(I,J,L) = TRACERFLUX(I,J,L) !* 2.0*(0.5 + r)
-        ENDDO
-        ENDDO
-        ENDDO
-!$OMP END PARALLEL DO
-
+!        print*, 'sum fz', sum(fz2)
+        print*, 'sum tracerflux', sum(tracerflux)
         print*, 'max tracerflux', maxval(TRACERFLUX)
        END SUBROUTINE COMPUTE_FLUX 
 !EOC
-
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
 !------------------------------------------------------------------------------
@@ -542,7 +517,99 @@
             
        END SUBROUTINE DO_FLUX_EXCHANGE
 !EOC
+!------------------------------------------------------------------------------
+!                  GEOS-Chem Global Chemical Transport Model                  !
+!------------------------------------------------------------------------------
+!BOC
+! !INTERFACE:
+      SUBROUTINE DO_WC_TRANSPORT( DT, STT, PS, TCVV, TRACERFLUX)
+! !USES:
+        USE CMN_GCTM_MOD
+        USE CMN_SIZE_MOD
+        USE ERROR_MOD
+        USE GRID_MOD
+! !INPUT PRAMETERS: 
+! 
+        REAL*8,         INTENT(IN)      :: DT
+        REAL*8,         INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
+        REAL*8,         INTENT(IN)      :: TCVV
+        REAL*8,         INTENT(IN)      :: PS(:,:)
+        REAL*8,         INTENT(IN)      :: TRACERFLUX(IIPAR,JJPAR,LLPAR)
+! !OUTPUT PARAMETERS:
+!
+! !REVISION HISTORY:
+! !LOCAL VARIABLES:
+!
+        INTEGER         :: I, J, K, N, L
+        REAL*8          :: Q_NEW(IIPAR, JJPAR, LLPAR)
+        REAL*8          :: AD(IIPAR, JJPAR, LLPAR)
+        REAL*8          :: T
 
+! START EXECUTION
+        ! Print info
+        WRITE( 6, '(a)' ) 'Performing vertical flux exchange'
+
+        print*, 'at start of flux ex', sum(STT)
+
+!$OMP PARALLEL DO           &
+!$OMP DEFAULT( SHARED )     &
+!$OMP PRIVATE( I, J, L ) 
+        DO L = 1, LLPAR
+        DO J = 1, JJPAR
+        DO I = 1, IIPAR
+            AD(I,J,L) = GET_AIR_MASS(I, J, L, PS(I,J))
+        ENDDO
+        ENDDO
+        ENDDO
+!$OMP END PARALLEL DO
+
+        ! Do bottom and top first
+        Q_NEW(:,:,:) = (STT(:,:,:) * AD(:,:,:) / TCVV)
+
+        print*, 'maxval qnew', MAXval(Q_NEW(:,:,1))
+
+        DO L = 2, LLPAR-1
+        DO I = 1, IIPAR
+        DO J = 1, JJPAR
+
+           !Q_NEW(I,J,L) = (STT(I,J,L) * AD(I,J,L)) / &
+                            !TCVV !- TRACERFLUX(I,J,L)
+
+            !T = Q_NEW(I,J,L) * 0.00001
+            IF (TRACERFLUX(I,J,L) > 0) THEN
+            Q_NEW(I,J,L) = Q_NEW(I,J,L) - TRACERFLUX(I,J,L)
+              Q_NEW(I,J,L-1) = Q_NEW(I,J,L-1) + &
+                            TRACERFLUX(I,J,L)
+            ELSE 
+                Q_NEW(I,J,L) = Q_NEW(I,J,L) + TRACERFLUX(I,J,L)
+                Q_NEW(I,J,L+1) = Q_NEW(I,J,L+1) - TRACERFLUX(I,J,L)
+            ENDIF
+        ENDDO
+        ENDDO
+        ENDDO
+
+        print*, 'maxval qnew', MAXval(Q_NEW)
+
+!$OMP PARALLEL DO           &
+!$OMP DEFAULT ( SHARED )    &
+!$OMP PRIVATE( I, J, L )    
+        ! Reset original array with the new values, converting from
+        ! [kg] to [v/v]
+        DO L = 1, LLPAR
+        DO J = 1, JJPAR
+        DO I = 1, IIPAR
+        STT(I,J,L) = Q_NEW(I,J,L) * TCVV / AD(I,J,L)
+        ENDDO
+        ENDDO
+        ENDDO
+!$OMP END PARALLEL DO
+
+        print*, 'maxval stt', maxval(stt)
+
+        print*, 'at end of flux ex stt', sum(STT(:,:,:))
+            
+       END SUBROUTINE DO_WC_TRANSPORT
+!EOC
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
 !------------------------------------------------------------------------------

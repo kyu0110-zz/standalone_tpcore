@@ -44,6 +44,7 @@ MODULE read_input_mod
 ! 
   PUBLIC  :: GeosFp_Read_A3dyn
   PUBLIC  :: geosfp_read_omega
+  PUBLIC  :: read_wc
   PUBLIC  :: GeosFp_Read_I3
   PUBLIC  :: restart_read
 !
@@ -513,6 +514,107 @@ CONTAINS
     CALL NcCl( fId )
 
   END SUBROUTINE geosfp_read_omega
+!EOC
+!BOP
+  SUBROUTINE read_wc( YYYYMMDD, HHMMSS, wc )
+!
+! !INPUT PARAMTERS:
+! 
+  INTEGER,      INTENT(IN)      :: YYYYMMDD
+  INTEGER,      INTENT(IN)      :: HHMMSS
+! 
+! Output paramters:
+!
+  REAL*8,       INTENT(OUT)     :: wc(:,:,:)
+!EOP
+!BOC
+! 
+! !LOCAL VARIABLES:
+! 
+    ! Scalars
+    INTEGER            :: fId                      ! netCDF file ID
+    INTEGER            :: I, J, L                  ! Loop indices
+    INTEGER            :: X, Y, Z, T               ! netCDF file dimensions
+    INTEGER            :: time_index               ! Read this slice of data
+    CHARACTER(LEN=16)  :: stamp                    ! Time and date stamp
+    CHARACTER(LEN=255) :: nc_file                  ! netCDF file name
+    CHARACTER(LEN=255) :: v_name                   ! netCDF variable name 
+    CHARACTER(LEN=255) :: dir                      ! Data directory path
+    CHARACTER(LEN=255) :: errMsg                   ! Error message
+    CHARACTER(LEN=255) :: caller                   ! Name of this routine
+                                    
+    ! Arrays                                 
+    INTEGER            :: st4d(4), ct4d(4)         ! Start & count indices
+    REAL*4             :: Q(IIPAR,JJPAR,LLPAR  )    ! 2D temporary data arrray
+
+    !==========================================================================
+    ! Opn the netCDF file
+    !==========================================================================
+
+    caller = 'READ_WC'
+
+    ! Replace time & date tokens in the file name
+    !dir     = TRIM( '' )
+    !CALL EXPAND_DATE( dir, YYYYMMDD, HHMMSS )
+
+    ! Replace time & date tokens in the file name
+    !nc_file = Get_Resolution_String()
+    !nc_file = 'GEOSFP.YYYYMMDD.OMEGA.' // TRIM( nc_file )
+    !CALL EXPAND_DATE( nc_file, YYYYMMDD, HHMMSS )
+
+    nc_file = 'wc_YYYYMMDD.nc'
+    CALL EXPAND_DATE( nc_file, YYYYMMDD, HHMMSS )
+
+    ! Construct complete file path
+#if defined( GRID4x5 )
+    nc_file = TRIM( '/n/regal/jacob_lab/kyu/wc/4x5/' ) // TRIM( nc_file )
+#elif defined( GRID2x25 )
+    nc_file = TRIM( '/n/regal/jacob_lab/kyu/MAX_OMEGA/2x25/' ) // TRIM('wc.nc')
+#elif defined(  GRID025x03125 )
+    nc_file = TRIM( '/n/regal/jacob_lab/kyu/MAX_OMEGA/025/' ) // TRIM('wc.nc')
+#endif
+
+    ! Open netCDF file
+    CALL NcOp_Rd( fId, TRIM( nc_file ) )
+
+    ! Read the dimensions from the netCDF file
+    CALL NcGet_DimLen( fId, 'lon',   X )
+    CALL NcGet_DimLen( fId, 'lat',   Y )
+    CALL NcGet_DimLen( fId, 'lev',   Z )
+
+    !======================================================================
+    ! Read data from the netCDF file
+    !======================================================================
+    
+    ! Find the proper time-slice to read from disk
+    time_index = 1
+
+    !-------------------------------------------------
+    ! Read 3D data (2D spatial + 1D time )
+    !-------------------------------------------------
+
+    ! netCDF start & count indices
+    st4d   = (/ 1,     1,     1,       time_index /)
+    ct4d   = (/ IIPAR, JJPAR, LLPAR,   1          /)
+
+    ! Read OMEGA
+    v_name = "wc"
+    CALL NcRd( Q, fId, TRIM(v_name), st4d, ct4d )
+    wc = Q
+
+    ! Echo info
+    stamp = TimeStamp_String( YYYYMMDD, HHMMSS )
+    WRITE( 6, 10 ) stamp
+ 10 FORMAT( '     - Found wc met fields for ', a )
+
+    !======================================================================
+    ! Diagnostics, cleanup, and quit
+    !======================================================================
+
+    ! Close netCDF file
+    CALL NcCl( fId )
+
+  END SUBROUTINE read_wc
 !EOC
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
