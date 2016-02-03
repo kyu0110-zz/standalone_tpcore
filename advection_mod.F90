@@ -26,6 +26,7 @@
       PUBLIC  :: COMPUTE_FLUX
       PUBLIC  :: DO_FLUX_EXCHANGE
       PUBLIC  :: DO_WC_TRANSPORT
+      PUBLIC  :: HOMOGENIZE
       PUBLIC  :: GET_AIR_MASS
 !
 ! !PRIVATE MEMBER FUNCTIONS:
@@ -609,6 +610,86 @@
         print*, 'at end of flux ex stt', sum(STT(:,:,:))
             
        END SUBROUTINE DO_WC_TRANSPORT
+!EOC
+!------------------------------------------------------------------------------
+!                  GEOS-Chem Global Chemical Transport Model                  !
+!------------------------------------------------------------------------------
+!BOC
+! !INTERFACE:
+      SUBROUTINE HOMOGENIZE( STT, PS, TCVV )
+! !USES:
+        USE CMN_GCTM_MOD
+        USE CMN_SIZE_MOD
+        USE ERROR_MOD
+        USE GRID_MOD
+! !INPUT PRAMETERS: 
+! 
+        REAL*8,         INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
+        REAL*8,         INTENT(IN)      :: TCVV
+        REAL*8,         INTENT(IN)      :: PS(:,:)
+! !OUTPUT PARAMETERS:
+!
+! !REVISION HISTORY:
+! !LOCAL VARIABLES:
+!
+        INTEGER         :: I, J, K, N, L
+        REAL*8          :: Q_NEW(IIPAR, JJPAR, LLPAR)
+        REAL*8          :: AD(IIPAR, JJPAR, LLPAR)
+        REAL*8          :: TOTAL_MASS
+        REAL*8          :: N_CELLS
+
+! START EXECUTION
+        ! Print info
+        WRITE( 6, '(a)' ) 'Horizontal homogenization'
+
+        print*, 'at start of homogenization', sum(STT)
+
+!$OMP PARALLEL DO           &
+!$OMP DEFAULT( SHARED )     &
+!$OMP PRIVATE( I, J, L ) 
+        DO L = 1, LLPAR
+        DO J = 1, JJPAR
+        DO I = 1, IIPAR
+            AD(I,J,L) = GET_AIR_MASS(I, J, L, PS(I,J))
+        ENDDO
+        ENDDO
+        ENDDO
+!$OMP END PARALLEL DO
+
+        ! compute mass
+        Q_NEW(:,:,:) = (STT(:,:,:) * AD(:,:,:) / TCVV)
+
+        N_CELLS = IIPAR * JJPAR * 1.0d0
+        print*, 'maxval qnew', MAXval(Q_NEW(:,:,1))
+
+        DO L = 1, LLPAR
+
+            TOTAL_MASS = SUM(Q_NEW(:,:,L))
+            Q_NEW(:,:,L) = TOTAL_MASS / N_CELLS
+
+        ENDDO
+
+        print*, 'maxval qnew', MAXval(Q_NEW)
+
+!$OMP PARALLEL DO           &
+!$OMP DEFAULT ( SHARED )    &
+!$OMP PRIVATE( I, J, L )    
+        ! Reset original array with the new values, converting from
+        ! [kg] to [v/v]
+        DO L = 1, LLPAR
+        DO J = 1, JJPAR
+        DO I = 1, IIPAR
+        STT(I,J,L) = Q_NEW(I,J,L) * TCVV / AD(I,J,L)
+        ENDDO
+        ENDDO
+        ENDDO
+!$OMP END PARALLEL DO
+
+        print*, 'maxval stt', maxval(stt)
+
+        print*, 'at end of homogenization', sum(STT(:,:,:))
+            
+       END SUBROUTINE HOMOGENIZE
 !EOC
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !
