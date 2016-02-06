@@ -380,7 +380,7 @@ CONTAINS
                            ak,       bk,       u,        v,       ps1,      &
                            ps2,      ps,       q,        iord,    jord,     &
                            kord,     n_adj,    XMASS,    YMASS,   FILL,     &
-                           AREA_M2,  TCVV,     wz,       fz )
+                           AREA_M2,  TCVV,     wz )
 !
 ! !USES:
 !
@@ -465,7 +465,6 @@ CONTAINS
 !
     ! "Predicted" surface pressure [hPa]
     REAL*8,  INTENT(OUT)   :: ps(IM,JFIRST:JLAST)  
-    REAL*8,  INTENT(INOUT)   :: fz  (:,:,:)
 !
 ! !AUTHOR:
 !   Original code from Shian-Jiann Lin, DAO) 
@@ -544,6 +543,7 @@ CONTAINS
     ! (ccc, 4/1/09) 
     REAL*8             :: fx (im, jm, km)
     REAL*8             :: fy (im, jm+1, km)           ! one more for edges
+    REAL*8             :: fz  (im, jm, km)
     REAL*8             :: qtemp (im, jm, km)
     REAL*8             :: DTC(IM,JM,KM)               ! up/down flux temp array
     REAL*8             :: TRACE_DIFF                  ! up/down flux variable

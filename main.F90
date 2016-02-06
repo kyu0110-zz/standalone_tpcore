@@ -84,9 +84,6 @@
     REAL*8, ALLOCATABLE   :: wzg_AVG(:,:,:)          ! time avg omega
     REAL*8, ALLOCATABLE   :: wzt_AVG(:,:,:)         ! time avg tpcore omega
     REAL*8, ALLOCATABLE   :: TRACERFLUX(:,:,:)      ! mass flux of tracer
-    REAL*8, ALLOCATABLE   :: fz(:,:,:)      ! mass flux of tracer
-    REAL*8, ALLOCATABLE   :: wc(:,:,:)      ! mass flux of tracer
-    REAL*8, ALLOCATABLE   :: wclarge(:,:,:)      ! mass flux of tracer
 
     !============================================================================
     ! Code begins here
@@ -113,12 +110,9 @@
     ALLOCATE( PFLT(IIPAR, JJPAR) )
     ALLOCATE( wzt_AVG(IIPAR, JJPAR, LLPAR) )
     ALLOCATE( wzg_AVG(IIPAR, JJPAR, LLPAR ) )
-    ALLOCATE( wc(IIPAR, JJPAR, LLPAR))
-    ALLOCATE( fz(IIPAR, JJPAR, LLPAR))
 #if defined( GRID4x5 ) || defined( GRID2x25 )
     ALLOCATE( wzgneg(IIPAR, JJPAR, LLPAR) )
     ALLOCATE( tracerflux(IIPAR, JJPAR, LLPAR))
-    ALLOCATE( wclarge(IIPAR, JJPAR, LLPAR))
 #endif
 
     ! Select timestep based on grid
@@ -231,36 +225,13 @@
       ! Do transport
       !============================================================================
 
-#if defined(GRID025x03125) 
-      ! write out wc
-      wc = (wzt/9.81d0) * (t_inst / TCVV)
-
-      DDATE = GET_NYMD()
-      WRITE(fname, '(i8)') DDATE
-      DDATE = GET_NHMS()
-      WRITE(ffname, '(i6.6)') DDATE
-      fname = TRIM(fname) // TRIM(ffname)
-      fname = TRIM(fname)//'.nc'
-      fname = '/n/regal/jacob_lab/kyu/wc/4x5_coarse/' // TRIM(fname) 
-      CALL WRITE_wc(TRIM(fname), DDATE/10000, &
-                MOD(DDATE, 10000)/100, MOD(DDATE, 100), GET_HOUR(), & 
-                GET_MINUTE(), GET_SECOND(), wc )
-#else 
-      ! read in wc
-      CALL read_wc(GET_NYMD(), GET_NHMS(), wc)
-      print*, 'sum wc'
-
-      wclarge = (wzt / 9.81d0) * (t_inst / TCVV)
-#endif
-
-      CALL DO_ADVECTION(LFILL, DT, PFLT, PS2, U, V, t_inst, TCVV, wzt, fz, RC)
+      CALL DO_ADVECTION(LFILL, DT, PFLT, PS2, U, V, t_inst, TCVV, wzt, RC)
     print*, 'after advection', sum(t_inst)
 
 
       ! ==========================================================================
       ! Homogenize horizontal fields
       ! ==========================================================================
-
       CALL HOMOGENIZE(t_inst, PS2, TCVV)
 
       ! ==========================================================================
@@ -269,8 +240,8 @@
 #if defined(GRID4x5) || defined(GRID2x25)
         print*, 'sum wc 4x5', sum((wzt / 9.81 ) * (t_inst / TCVV) )
 
-      CALL COMPUTE_FLUX(DT, wc, wclarge, t_inst, PS2, TCVV, TRACERFLUX, fz)
-      CALL DO_FLUX_EXCHANGE(DT, t_inst, PS2, TCVV, TRACERFLUX )
+      !CALL COMPUTE_FLUX(DT, wzt, wzgneg, t_inst, PS2, TCVV, TRACERFLUX)
+      !CALL DO_FLUX_EXCHANGE(DT, t_inst, PS2, TCVV, TRACERFLUX )
 
 #endif
 
