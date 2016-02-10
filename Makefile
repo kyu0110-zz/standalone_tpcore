@@ -77,6 +77,7 @@ initialize_mod.o	      \
 advection_mod.o		      \
 chem_mod.o				  \
 diagnostic_mod.o	      \
+regrid_a2a_mod.o		  \
 main.o
 
 #=============================================================================
@@ -144,9 +145,10 @@ advection_mod.o		      : advection_mod.F90 	pressure_mod.o	\
 				CMN_SIZE_mod.o		CMN_GCTM_mod.o	\
 				error_mod.o		gigc_errcode_mod.o \
 				grid_mod.o		tpcore_fvdas_mod.o \
-				pjc_pfix_mod.o
+				pjc_pfix_mod.o	regrid_a2a_mod.o
 chem_mod.o				  : chem_mod.F90			grid_mod.o	\
 				CMN_SIZE_mod.o		error_mod.o
+regrid_a2a_mod.o	: regrid_a2a_mod.F90
 
 #=============================================================================
 #  Other Makefile Commands

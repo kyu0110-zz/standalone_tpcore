@@ -232,7 +232,9 @@
       ! ==========================================================================
       ! Homogenize horizontal fields
       ! ==========================================================================
-      CALL HOMOGENIZE(t_inst, PS2, TCVV)
+#if defined(GRID025x03125)
+      CALL HOMOGENIZE(t_inst)
+#endif
 
       ! ==========================================================================
       ! Do flux echange
@@ -240,8 +242,8 @@
 #if defined(GRID4x5) || defined(GRID2x25)
         print*, 'sum wc 4x5', sum((wzt / 9.81 ) * (t_inst / TCVV) )
 
-      !CALL COMPUTE_FLUX(DT, wzt, wzgneg, t_inst, PS2, TCVV, TRACERFLUX)
-      !CALL DO_FLUX_EXCHANGE(DT, t_inst, PS2, TCVV, TRACERFLUX )
+      CALL COMPUTE_FLUX(DT, wzt, wzgneg, t_inst, PS2, TCVV, TRACERFLUX)
+      CALL DO_FLUX_EXCHANGE(DT, t_inst, PS2, TCVV, TRACERFLUX )
 
 #endif
 

@@ -426,7 +426,7 @@
         DO J = 1, JJPAR
         DO I = 1, IIPAR
             AD = GET_AIR_MASS(I, J, L, PS(I,J))
-            BOXMASS = STT(I,J,L) * AD / TCVV
+            BOXMASS = 0.5 * (STT(I,J,L) * AD / TCVV)
             TRACERFLUX(I,J,L) = min(TRACERFLUX(I,J,L), BOXMASS)
         ENDDO
         ENDDO
@@ -626,77 +626,63 @@
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE HOMOGENIZE( STT, PS, TCVV )
+      SUBROUTINE HOMOGENIZE( STT )
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
         USE ERROR_MOD
         USE GRID_MOD
+        USE REGRID_A2A_MOD, ONLY : MAP_A2A
 ! !INPUT PRAMETERS: 
 ! 
-        REAL*8,         INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
-        REAL*8,         INTENT(IN)      :: TCVV
-        REAL*8,         INTENT(IN)      :: PS(:,:)
+        REAL*8,TARGET, INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
 ! !OUTPUT PARAMETERS:
 !
 ! !REVISION HISTORY:
 ! !LOCAL VARIABLES:
 !
         INTEGER         :: I, J, K, N, L
-        REAL*8          :: Q_NEW(IIPAR, JJPAR, LLPAR)
-        REAL*8          :: AD(IIPAR, JJPAR, LLPAR)
-        REAL*8          :: TOTAL_MASS
-        REAL*8          :: TOTAL_AIR_MASS
+        REAL*8          :: LON_025(IIPAR+1)
+        REAL*8          :: LON_4x5(73)
+        REAL*8          :: LAT_025(JJPAR+1)
+        REAL*8          :: LAT_4x5(47)
+        REAL*8, POINTER :: Q_025(:, :)
+        REAL*8          :: Q_4x5(72, 46)
 
 ! START EXECUTION
         ! Print info
         WRITE( 6, '(a)' ) 'Horizontal homogenization'
 
-
-!$OMP PARALLEL DO           &
-!$OMP DEFAULT( SHARED )     &
-!$OMP PRIVATE( I, J, L ) 
-        DO L = 1, LLPAR
-        DO J = 1, JJPAR
-        DO I = 1, IIPAR
-            AD(I,J,L) = GET_AIR_MASS(I, J, L, PS(I,J))
+        ! Compute lat and lons
+        DO I = 1, IIPAR+1
+            LON_025(I) = GET_XEDGE(I, 1, 1)
         ENDDO
-        ENDDO
-        ENDDO
-!$OMP END PARALLEL DO
-
-        ! compute mass
-        Q_NEW(:,:,:) = (STT(:,:,:) * AD(:,:,:) / TCVV)
-
-        print*, 'at start of homogenization', sum(Q_NEW)
-
-        DO L = 1, LLPAR
-
-            TOTAL_MASS = SUM(Q_NEW(:,:,L))
-            TOTAL_AIR_MASS = SUM(AD(:,:,L))
-            Q_NEW(:,:,L) = TOTAL_MASS / TOTAL_AIR_MASS
-
+ 
+        DO J = 1, JJPAR+1
+            LAT_025(J) = GET_YSIN(1, J, 1)
         ENDDO
 
-        print*, 'maxval qnew', MAXval(Q_NEW)
+        ! Read lats and lons from file
+        LON_4x5 = (/ -182.5, -177.5, -172.5, -167.5, -162.5, -157.5, -152.5, -147.5, -142.5, -137.5, -132.5, -127.5, -122.5, -117.5, -112.5, -107.5, -102.5, -97.5, -92.5, -87.5, -82.5, -77.5, -72.5, -67.5, -62.5, -57.5, -52.5, -47.5, -42.5, -37.5, -32.5, -27.5, -22.5, -17.5, -12.5, -7.5, -2.5, 2.5, 7.5, 12.5, 17.5, 22.5, 27.5, 32.5, 37.5, 42.5, 47.5, 52.5, 57.5, 62.5, 67.5, 72.5, 77.5, 82.5, 87.5, 92.5, 97.5, 102.5, 107.5, 112.5, 117.5, 122.5, 127.5, 132.5, 137.5, 142.5, 147.5, 152.5, 157.5, 162.5, 167.5, 172.5, 177.5 /)
 
-!$OMP PARALLEL DO           &
-!$OMP DEFAULT ( SHARED )    &
-!$OMP PRIVATE( I, J, L )    
-        ! Reset original array with the new values, converting from
-        ! [kg] to [v/v]
-        DO L = 1, LLPAR
-        DO J = 1, JJPAR
-        DO I = 1, IIPAR
-        STT(I,J,L) = Q_NEW(I,J,L) * TCVV
-        ENDDO
-        ENDDO
-        ENDDO
-!$OMP END PARALLEL DO
+        LAT_4x5 = (/ -1.0, -0.999390827, -0.9945218954, -0.984807753, -0.9702957263, -0.9510565163, -0.9271838546, -0.8987940463, -0.8660254038, -0.8290375726, -0.7880107536, -0.7431448255, -0.6946583705, -0.6427876097, -0.5877852523, -0.5299192642, -0.4694715628, -0.4067366431, -0.3420201433, -0.2756373558, -0.2079116908, -0.139173101, -0.0697564737, 0.0, 0.0697564737, 0.139173101, 0.2079116908, 0.2756373558, 0.3420201433, 0.4067366431, 0.4694715628, 0.5299192642, 0.5877852523, 0.6427876097, 0.6946583705, 0.7431448255, 0.7880107536, 0.8290375726, 0.8660254038, 0.8987940463, 0.9271838546, 0.9510565163, 0.9702957263, 0.984807753, 0.9945218954, 0.999390827, 1.0 /)
+ 
+      DO L=1, LLPAR
+        Q_025 => STT(:, :, L)
+
+        ! Regrid input field from 0.25x0.3125 to 4x5 grid
+        CALL MAP_A2A(IIPAR, JJPAR, LON_025, LAT_025, Q_025, & 
+               72, 46, LON_4x5, LAT_4x5, Q_4x5, 0, 0 )  
+
+        ! Regrid from 4x5 back to 0.25x0.3125
+        CALL MAP_A2A(72, 46, LON_4x5, LAT_4x5, Q_4x5,   &
+               IIPAR, JJPAR, LON_025, LAT_025, Q_025, 0, 0 )
+
+      ENDDO
 
         print*, 'maxval stt', maxval(stt)
 
-        print*, 'at end of homogenization', sum(Q_NEW)
+        print*, 'at end of homogenization', sum(STT)
             
        END SUBROUTINE HOMOGENIZE
 !EOC
