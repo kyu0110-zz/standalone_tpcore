@@ -117,8 +117,8 @@
 
     ! Select timestep based on grid
 #if defined( GRID4x5 )  
-    !DT = 1800d0
-    DT = 300d0
+    DT = 1800d0
+    !DT = 300d0
 #elif defined( GRID2x25 ) 
     DT = 300d0
     !DT = 900d0
