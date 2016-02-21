@@ -26,7 +26,8 @@
       PUBLIC  :: COMPUTE_FLUX
       PUBLIC  :: DO_FLUX_EXCHANGE
       PUBLIC  :: DO_WC_TRANSPORT
-      PUBLIC  :: HOMOGENIZE
+      PUBLIC  :: COMPUTE_KZ
+      PUBLIC  :: REGRID
       PUBLIC  :: GET_AIR_MASS
 !
 ! !PRIVATE MEMBER FUNCTIONS:
@@ -351,18 +352,18 @@
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE COMPUTE_FLUX( DT, OMEGA, NEGOMEGA, &
+      SUBROUTINE COMPUTE_FLUX( DT, KZ, &
                               STT, PS, TCVV, TRACERFLUX)
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
         USE ERROR_MOD
         USE GRID_MOD
+        USE PRESSURE_MOD
 ! !INPUT PRAMETERS: 
 ! 
         REAL*8,         INTENT(IN)      :: DT
-        REAL*8,         INTENT(IN)   :: OMEGA(IIPAR,JJPAR,LLPAR)
-        REAL*8,         INTENT(IN)   :: NEGOMEGA(IIPAR,JJPAR,LLPAR)
+        REAL*8,         INTENT(IN)      :: KZ(IIPAR,JJPAR,LLPAR)
         REAL*8,         INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
         REAL*8,         INTENT(IN)      :: TCVV
         REAL*8,         INTENT(IN)      :: PS(:,:)
@@ -373,10 +374,11 @@
 ! !LOCAL VARIABLES:
 !
         INTEGER         :: I, J, K, N, L
-        REAL*8          :: ZMASS(IIPAR, JJPAR, LLPAR)
+        REAL*8          :: wc_prime
         REAL*8          :: AREA_M2(IIPAR,JJPAR)
         REAL*8          :: AD
         REAL*8          :: BOXMASS
+        REAL*8          :: dc, p_top, p_bot, dcdp
 
 ! START EXECUTION
         ! Print info
@@ -391,42 +393,34 @@
             AREA_M2(I,J) = GET_AREA_M2(I,J,1)
           ENDDO
         ENDDO
-!$OMP END PARALLEL DO      
-
-        ! up/down mass flux [kg air / m^2]
-        ! If the net omega is in the same direction as negomega, the
-        ! additional flux ist he difference between the two. If the next
-        ! flux is in the opposite direction, the additional flux is just
-        ! negomega.
-        WHERE ( OMEGA .lt. 0d0 ) & 
-         ZMASS = ((NEGOMEGA / -9.81) * DT) - ((OMEGA / -9.81) * DT)
-        WHERE ( OMEGA .ge. 0d0 ) & 
-         ZMASS = ( NEGOMEGA / -9.81) * DT
-
-        ! UP/DOWN mass flux [kg air]
-        DO L = 1, LLPAR
-            ZMASS(:,:,L) = ZMASS(:,:,L) * AREA_M2(:,:)
-        ENDDO
-
-        print*, 'sum ZMASS', sum(ZMASS)
-            ! Additional mass flux of each tracer is the mass fluxo f
-            ! air multiplied by the mixign ratio of the tracer divided
-            ! by the ratio of molec w eight of tracer to the molec
-            ! weight of air
-            ! [kg tracer] = [kg air] * [mol tracer/mol air] * 
-            !               [kg tracer/mol tracer * mol air/kg air]
-            TRACERFLUX(:,:,:) = ZMASS(:,:,:) * STT(:,:,:) / TCVV
+!$OMP END PARALLEL DO    
 
 !$OMP PARALLEL DO       &
 !$OMP DEFAULT( SHARED ) &
-!$OMP PRIVATE( I, J, L, AD, BOXMASS)
-        ! tracerflux cannot be more than half the mass that's currently
-        ! in the box
-        DO L = 1, LLPAR
+!$OMP PRIVATE( I, J, L, dc, p_top, p_bot, dcdp, wc_prime, AD, BOXMASS )
+        ! Compute w'c' from Kz
+        DO L = 1, LLPAR 
         DO J = 1, JJPAR
         DO I = 1, IIPAR
+            IF ( L == 1 ) THEN
+            dc = (STT(I,J,L+1) - STT(I,J,L)) / TCVV
+            p_bot = GET_PCENTER(I,J,L, Ap, Bp, PS) * 100.0d0
+            p_top = GET_PCENTER(I,J,L+1, Ap, Bp, PS) * 100.0d0
+            ELSE IF ( L == 47 ) THEN
+            dc = (STT(I,J,L) - STT(I,J,L-1)) / TCVV
+            p_bot = GET_PCENTER(I,J,L-1, Ap, Bp, PS) * 100.0d0
+            p_top = GET_PCENTER(I,J,L, Ap, Bp, PS) * 100.0d0
+            ELSE
+            dc = (STT(I,J,L+1) - STT(I,J,L-1)) / TCVV
+            p_bot = GET_PCENTER(I,J,L-1, Ap, Bp, PS) * 100.0d0
+            p_top = GET_PCENTER(I,J,L+1, Ap, Bp, PS) * 100.0d0
+            ENDIF
+
+            dcdp = dc / (p_top - p_bot) 
+            wc_prime = (-1.0d0 * Kz(I,J,L) / 9.81d0) * dcdp
+            TRACERFLUX(I,J,L) = wc_prime * AREA_M2(I,J) * DT
             AD = GET_AIR_MASS(I, J, L, PS(I,J))
-            BOXMASS = 0.5 * (STT(I,J,L) * AD / TCVV)
+            BOXMASS = STT(I,J,L) * AD / TCVV
             TRACERFLUX(I,J,L) = min(TRACERFLUX(I,J,L), BOXMASS)
         ENDDO
         ENDDO
@@ -626,7 +620,116 @@
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE HOMOGENIZE( STT )
+      SUBROUTINE COMPUTE_KZ( w, c, kz, c_bar, PS )
+! !USES:
+        USE CMN_GCTM_MOD
+        USE CMN_SIZE_MOD
+        USE ERROR_MOD
+        USE GRID_MOD
+        USE PRESSURE_MOD
+! !INPUT PRAMETERS: 
+! 
+        REAL*8,     INTENT(IN)    :: w(IIPAR, JJPAR, LLPAR)
+        REAL*8,     INTENT(IN)    :: c(IIPAR, JJPAR, LLPAR)
+        REAL*8,     INTENT(OUT)   :: kz(72, 46, LLPAR)
+        REAL*8,     INTENT(IN)    :: PS(:,:)
+        REAL*8, TARGET, INTENT(OUT)   :: c_bar(72, 46, LLPAR)
+! !OUTPUT PARAMETERS:
+!
+! !REVISION HISTORY:
+! !LOCAL VARIABLES:
+!
+        INTEGER         :: I, J, K, N, L, I_4x5, J_4x5
+        REAL*8          :: wc(IIPAR, JJPAR)
+        REAL*8          :: wc_bar(72, 46)
+        REAL*8          :: w_bar(72,46)
+        REAL*8          :: wc_prime(72, 46, LLPAR)
+        REAL*8          :: dcdz(72, 46, LLPAR)
+        REAL*8          :: p_top, p_bot
+        REAL*8, POINTER :: cbar(:,:)
+        REAL*8          :: dcdz_tmp
+! START EXECUTION
+        ! Print info
+        WRITE( 6, '(a)' ) 'computing Kz'
+
+        I_4x5 = 72
+        J_4x5 = 46
+
+!$OMP PARALLEL DO       &
+!$OMP DEFAULT( SHARED ) &
+!$OMP PRIVATE(  L, wc, wc_bar, w_bar )
+        DO L = 1, LLPAR
+            wc(:, :) = w(:, :, L) * c(:, :, L)
+            CALL REGRID(wc, wc_bar)
+            cbar => c_bar(:,:,L)
+            CALL REGRID(c(:,:,L), cbar)
+            CALL REGRID(w(:,:,L), w_bar)
+            wc_prime(:,:,L) = wc_bar(:,:) - (w_bar(:,:) *c_bar(:,:,L))
+        ENDDO
+!$OMP END PARALLEL DO
+
+        ! vertical gradient 
+        DO J = 1, J_4x5
+        DO I = 1, I_4x5
+        p_top = GET_PCENTER(I,J,2, Ap, Bp, PS) * 100.0d0
+        p_bot = GET_PCENTER(I,J,1, Ap, Bp, PS) * 100.0d0
+        dcdz(I,J,1) = (c_bar(I,J,2) - c_bar(I,J,1)) / (p_top - p_bot) 
+        ENDDO
+        ENDDO
+
+!$OMP PARALLEL DO           &
+!$OMP DEFAULT( SHARED )     &
+!$OMP PRIVATE( I, J, L, p_top, p_bot )    
+        DO L = 2, LLPAR-1
+        DO J = 1, J_4x5
+        DO I = 1, I_4x5
+        p_top = GET_PCENTER(I,J,L+1, Ap, Bp, PS) * 100.0d0
+        p_bot = GET_PCENTER(I,J,L-1, Ap, Bp, PS) * 100.0d0
+        dcdz(I,J,L) = (c_bar(I,J,L+1) - c_bar(I,J,L-1)) / (p_top - p_bot)
+        ENDDO
+        ENDDO
+        ENDDO
+!$OMP END PARALLEL DO
+
+        DO J = 1, J_4x5
+        DO I = 1, I_4x5
+        p_top = GET_PCENTER(I,J,LLPAR, Ap, Bp, PS) * 100.0d0
+        p_bot = GET_PCENTER(I,J,46, Ap, Bp, PS) * 100.0d0
+        dcdz(I,J,47) = (c_bar(I,J,47) - c_bar(I,J,46)) / (p_top - p_bot) 
+        ENDDO
+        ENDDO
+
+        print*, 'sum c', sum(c_bar)
+        print*, 'sum w', sum(w_bar)
+        print*, 'mim dcdz', minval(abs(dcdz))
+        ! compute Kz
+!$OMP PARALLEL DO           &
+!$OMP DEFAULT( SHARED )     &
+!$OMP PRIVATE( I, J, L )    
+        DO L = 1, LLPAR
+        DO J = 1, J_4x5
+        DO I = 1, I_4x5
+        IF (dcdz(I,J,L) > 1e-38) THEN
+            Kz(I,J,L) = wc_prime(I,J,L) / dcdz(I,J,L)
+        ELSE
+            Kz(I,J,L) = -9999999999
+        ENDIF
+        ENDDO
+        ENDDO
+        ENDDO
+!$OMP END PARALLEL DO
+         
+        print*, 'sum kz', sum(kz)
+        print*, 'max kz', maxval(abs(kz)) 
+       END SUBROUTINE COMPUTE_KZ
+!EOC
+
+!------------------------------------------------------------------------------
+!                  GEOS-Chem Global Chemical Transport Model                  !
+!------------------------------------------------------------------------------
+!BOC
+! !INTERFACE:
+      SUBROUTINE REGRID( Q_025, Q_4x5 )
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
@@ -635,7 +738,8 @@
         USE REGRID_A2A_MOD, ONLY : MAP_A2A
 ! !INPUT PRAMETERS: 
 ! 
-        REAL*8,TARGET, INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
+        REAL*8,        INTENT(IN)   :: Q_025(IIPAR,JJPAR)
+        REAL*8      ,  INTENT(OUT)  :: Q_4x5(72,46)
 ! !OUTPUT PARAMETERS:
 !
 ! !REVISION HISTORY:
@@ -646,12 +750,8 @@
         REAL*8          :: LON_4x5(73)
         REAL*8          :: LAT_025(JJPAR+1)
         REAL*8          :: LAT_4x5(47)
-        REAL*8, POINTER :: Q_025(:, :)
-        REAL*8          :: Q_4x5(72, 46)
 
 ! START EXECUTION
-        ! Print info
-        WRITE( 6, '(a)' ) 'Horizontal homogenization'
 
         ! Compute lat and lons
         DO I = 1, IIPAR+1
@@ -667,24 +767,12 @@
 
         LAT_4x5 = (/ -1.0, -0.999390827, -0.9945218954, -0.984807753, -0.9702957263, -0.9510565163, -0.9271838546, -0.8987940463, -0.8660254038, -0.8290375726, -0.7880107536, -0.7431448255, -0.6946583705, -0.6427876097, -0.5877852523, -0.5299192642, -0.4694715628, -0.4067366431, -0.3420201433, -0.2756373558, -0.2079116908, -0.139173101, -0.0697564737, 0.0, 0.0697564737, 0.139173101, 0.2079116908, 0.2756373558, 0.3420201433, 0.4067366431, 0.4694715628, 0.5299192642, 0.5877852523, 0.6427876097, 0.6946583705, 0.7431448255, 0.7880107536, 0.8290375726, 0.8660254038, 0.8987940463, 0.9271838546, 0.9510565163, 0.9702957263, 0.984807753, 0.9945218954, 0.999390827, 1.0 /)
  
-      DO L=1, LLPAR
-        Q_025 => STT(:, :, L)
-
         ! Regrid input field from 0.25x0.3125 to 4x5 grid
         CALL MAP_A2A(IIPAR, JJPAR, LON_025, LAT_025, Q_025, & 
                72, 46, LON_4x5, LAT_4x5, Q_4x5, 0, 0 )  
 
-        ! Regrid from 4x5 back to 0.25x0.3125
-        CALL MAP_A2A(72, 46, LON_4x5, LAT_4x5, Q_4x5,   &
-               IIPAR, JJPAR, LON_025, LAT_025, Q_025, 0, 0 )
 
-      ENDDO
-
-        print*, 'maxval stt', maxval(stt)
-
-        print*, 'at end of homogenization', sum(STT)
-            
-       END SUBROUTINE HOMOGENIZE
+       END SUBROUTINE REGRID
 !EOC
 !------------------------------------------------------------------------------
 !                  GEOS-Chem Global Chemical Transport Model                  !

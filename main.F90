@@ -20,7 +20,7 @@
     USE ERROR_MOD               ! borrowed from GEOS-Chem
     USE read_input_mod,        ONLY : GeosFp_Read_A3dyn, GeosFp_Read_I3
     USE read_input_mod,        ONLY : restart_read, geosfp_read_omega 
-    USE read_input_mod,        ONLY : read_wc
+    USE read_input_mod,        ONLY : read_wc, read_Kz
     USE TPCORE_FVDAS_MOD,       ONLY : Tpcore_FvDas 
     USE PRESSURE_MOD
     USE PJC_PFIX_MOD
@@ -84,6 +84,8 @@
     REAL*8, ALLOCATABLE   :: wzg_AVG(:,:,:)          ! time avg omega
     REAL*8, ALLOCATABLE   :: wzt_AVG(:,:,:)         ! time avg tpcore omega
     REAL*8, ALLOCATABLE   :: TRACERFLUX(:,:,:)      ! mass flux of tracer
+    REAL*8, ALLOCATABLE   :: Kz(:,:,:)          ! Kz
+    REAL*8, ALLOCATABLE   :: c_bar(:,:,:)          ! Kz
 
     !============================================================================
     ! Code begins here
@@ -113,6 +115,10 @@
 #if defined( GRID4x5 ) || defined( GRID2x25 )
     ALLOCATE( wzgneg(IIPAR, JJPAR, LLPAR) )
     ALLOCATE( tracerflux(IIPAR, JJPAR, LLPAR))
+    ALLOCATE( Kz(IIPAR, JJPAR, LLPAR) )
+#else 
+    ALLOCATE( Kz(72, 46, LLPAR))
+    ALLOCATE( c_bar(72, 46, LLPAR))
 #endif
 
     ! Select timestep based on grid
@@ -158,6 +164,7 @@
     IF (restart == 'F') THEN
       t_inst = 0        ! start with zero concentrations
       !t_inst(:,:,1) = 0.001      ! start with zero concentrations
+      wzt = 0
     ELSE 
       t_inst = 0 
       call restart_read(restart, t_inst)
@@ -208,6 +215,7 @@
       ! Initialize transport if haven't yet
       !============================================================================
       IF (FIRST) CALL INIT_ADVECTION(DT, RC)
+      IF (FIRST) wzt = wzg
       FIRST = .FALSE.
 
       !============================================================================
@@ -225,16 +233,30 @@
       ! Do transport
       !============================================================================
 
+#if defined(GRID025x03125)
+        ! write out Kz
+        CALL COMPUTE_KZ(wzt, t_inst, Kz, c_bar, PFLT)
+
+        DDATE = GET_NYMD()
+        WRITE(fname, '(i8)') DDATE
+        DDATE = GET_NHMS()
+        WRITE(ffname, '(i6.6)') DDATE
+        fname = TRIM(fname) // TRIM(ffname)
+        fname = TRIM(fname) //'.nc'
+        fname = '/n/regal/jacob_lab/kyu/Kz/' // TRIM(fname)
+        CALL WRITE_KZ(TRIM(fname), DDATE/10000, &
+                MOD(DDATE, 10000)/100, MOD(DDATE, 100), GET_HOUR(), &
+                GET_MINUTE(), GET_SECOND(), Kz, c_bar)
+        
+#else 
+        ! read in Kz
+        print*, GET_NHMS()
+        CALL READ_KZ(GET_NYMD(), GET_NHMS(), Kz)
+#endif 
+
       CALL DO_ADVECTION(LFILL, DT, PFLT, PS2, U, V, t_inst, TCVV, wzt, RC)
     print*, 'after advection', sum(t_inst)
 
-
-      ! ==========================================================================
-      ! Homogenize horizontal fields
-      ! ==========================================================================
-#if defined(GRID025x03125)
-      CALL HOMOGENIZE(t_inst)
-#endif
 
       ! ==========================================================================
       ! Do flux echange
@@ -242,8 +264,8 @@
 #if defined(GRID4x5) || defined(GRID2x25)
         print*, 'sum wc 4x5', sum((wzt / 9.81 ) * (t_inst / TCVV) )
 
-      CALL COMPUTE_FLUX(DT, wzt, wzgneg, t_inst, PS2, TCVV, TRACERFLUX)
-      CALL DO_FLUX_EXCHANGE(DT, t_inst, PS2, TCVV, TRACERFLUX )
+      CALL COMPUTE_FLUX(DT, Kz, t_inst, PS2, TCVV, TRACERFLUX)
+      CALL DO_WC_TRANSPORT(DT, t_inst, PS2, TCVV, TRACERFLUX )
 
 #endif
 
