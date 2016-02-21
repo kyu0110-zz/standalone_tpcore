@@ -402,6 +402,9 @@
         DO L = 1, LLPAR 
         DO J = 1, JJPAR
         DO I = 1, IIPAR
+            IF (KZ(I,J,L) < -999999999) THEN
+            TRACERFLUX(I,J,L) = 0d0
+            ELSE 
             IF ( L == 1 ) THEN
             dc = (STT(I,J,L+1) - STT(I,J,L)) / TCVV
             p_bot = GET_PCENTER(I,J,L, Ap, Bp, PS) * 100.0d0
@@ -417,11 +420,18 @@
             ENDIF
 
             dcdp = dc / (p_top - p_bot) 
-            wc_prime = (-1.0d0 * Kz(I,J,L) / 9.81d0) * dcdp
+            wc_prime = (1.0d0 * Kz(I,J,L) / 9.81d0) * dcdp
             TRACERFLUX(I,J,L) = wc_prime * AREA_M2(I,J) * DT
             AD = GET_AIR_MASS(I, J, L, PS(I,J))
             BOXMASS = STT(I,J,L) * AD / TCVV
-            TRACERFLUX(I,J,L) = min(TRACERFLUX(I,J,L), BOXMASS)
+            IF (abs(TRACERFLUX(I,J,L)) > BOXMASS) THEN
+                IF (TRACERFLUX(I,J,L) > 0 ) THEN
+                TRACERFLUX(I,J,L) = BOXMASS 
+                ELSE
+                TRACERFLUX(I,J,L) = -1.0 * BOXMASS
+                ENDIF
+            ENDIF
+            ENDIF
         ENDDO
         ENDDO
         ENDDO

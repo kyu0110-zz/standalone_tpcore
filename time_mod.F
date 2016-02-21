@@ -2766,6 +2766,7 @@
       ENCODE( 2, '(i2.2)', DD_STR   ) DD
       ENCODE( 2, '(i2.2)', HH_STR   ) HH
       ENCODE( 2, '(i2.2)', II_STR   ) II
+      ENCODE( 2, '(i2.2)', SS_STR   ) SS
 
 #else
 
@@ -2776,6 +2777,7 @@
       WRITE( DD_STR,   '(i2.2)' ) DD
       WRITE( HH_STR,   '(i2.2)' ) HH
       WRITE( II_STR,   '(i2.2)' ) II
+      WRITE( SS_STR,   '(i2.2)' ) SS
 
 #endif
 
@@ -2786,6 +2788,7 @@
       CALL STRREPL( FILENAME, 'DD',   DD_STR   )
       CALL STRREPL( FILENAME, 'hh',   HH_STR   )
       CALL STRREPL( FILENAME, 'mm',   II_STR   )
+      CALL STRREPL( FILENAME, 'ss',   SS_STR   )
 
       END SUBROUTINE EXPAND_DATE
 !EOC
