@@ -665,7 +665,7 @@ CONTAINS
     !nc_file = 'GEOSFP.YYYYMMDD.OMEGA.' // TRIM( nc_file )
     !CALL EXPAND_DATE( nc_file, YYYYMMDD, HHMMSS )
 
-    nc_file = 'YYYYMMDDhhmmSS.nc'
+    nc_file = 'YYYYMMDDhhmmss.nc'
     CALL EXPAND_DATE( nc_file, YYYYMMDD, HHMMSS )
     print*, nc_file
 
