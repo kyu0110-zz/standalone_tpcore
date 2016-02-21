@@ -665,8 +665,9 @@ CONTAINS
     !nc_file = 'GEOSFP.YYYYMMDD.OMEGA.' // TRIM( nc_file )
     !CALL EXPAND_DATE( nc_file, YYYYMMDD, HHMMSS )
 
-    nc_file = 'YYYYMMDDhhmmss.nc'
+    nc_file = 'YYYYMMDDhhmmSS.nc'
     CALL EXPAND_DATE( nc_file, YYYYMMDD, HHMMSS )
+    print*, nc_file
 
     ! Construct complete file path
 #if defined( GRID4x5 )
