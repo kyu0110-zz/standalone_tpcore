@@ -352,8 +352,8 @@
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE COMPUTE_FLUX( DT, KZ, &
-                              STT, PS, TCVV, TRACERFLUX)
+      SUBROUTINE COMPUTE_FLUX( DT, KZ, wz, &
+                              STT, PS, TCVV, TRACERFLUX, wc_prime)
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
@@ -364,17 +364,19 @@
 ! 
         REAL*8,         INTENT(IN)      :: DT
         REAL*8,         INTENT(IN)      :: KZ(IIPAR,JJPAR,LLPAR)
+        REAL*8,         INTENT(IN)      :: wz(IIPAR,JJPAR,LLPAR)
         REAL*8,         INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
         REAL*8,         INTENT(IN)      :: TCVV
         REAL*8,         INTENT(IN)      :: PS(:,:)
         REAL*8,         INTENT(OUT)   :: TRACERFLUX(IIPAR, JJPAR, LLPAR)
+        REAL*8,         INTENT(OUT)   :: wc_prime(IIPAR, JJPAR, LLPAR)
 ! !OUTPUT PARAMETERS:
 !
 ! !REVISION HISTORY:
 ! !LOCAL VARIABLES:
 !
         INTEGER         :: I, J, K, N, L
-        REAL*8          :: wc_prime
+        !REAL*8          :: wc_prime
         REAL*8          :: AREA_M2(IIPAR,JJPAR)
         REAL*8          :: AD
         REAL*8          :: BOXMASS
@@ -397,7 +399,7 @@
 
 !$OMP PARALLEL DO       &
 !$OMP DEFAULT( SHARED ) &
-!$OMP PRIVATE( I, J, L, dc, p_top, p_bot, dcdp, wc_prime, AD, BOXMASS )
+!$OMP PRIVATE( I, J, L, dc, p_top, p_bot, dcdp, AD, BOXMASS )
         ! Compute w'c' from Kz
         DO L = 1, LLPAR 
         DO J = 1, JJPAR
@@ -420,8 +422,8 @@
             ENDIF
 
             dcdp = dc / (p_top - p_bot) 
-            wc_prime = (1.0d0 * Kz(I,J,L) / 9.81d0) * dcdp
-            TRACERFLUX(I,J,L) = wc_prime * AREA_M2(I,J) * DT
+            wc_prime(I,J,L) = (1.0d0 * Kz(I,J,L) / 9.81d0) * dcdp - (wz(I,J,L) / 9.81d0 * STT(I,J,L) / TCVV)
+            TRACERFLUX(I,J,L) = wc_prime(I,J,L) * AREA_M2(I,J) * DT
             AD = GET_AIR_MASS(I, J, L, PS(I,J))
             BOXMASS = STT(I,J,L) * AD / TCVV
             IF (abs(TRACERFLUX(I,J,L)) > BOXMASS) THEN
@@ -437,8 +439,19 @@
         ENDDO
 !$OMP END PARALLEL DO
 
+        !DO L = 1, 30
+        !DO J = 1, JJPAR
+        !DO I = 1, IIPAR
+        !    IF (abs(TRACERFLUX(I,J,L)) < 1.0e-18) THEN 
+        !        TRACERFLUX(I,J,L) = TRACERFLUX(I,J,L-1)
+        !    ENDIF
+        !ENDDO
+        !ENDDO
+        !ENDDO
+
         print*, 'sum tracerflux', sum(tracerflux)
-        print*, 'max tracerflux', maxval(TRACERFLUX)
+        print*, 'max tracerflux', maxval(abs(TRACERFLUX))
+        print*, 'min tracerflux', minval(abs(TRACERFLUX))
        END SUBROUTINE COMPUTE_FLUX 
 !EOC
 !------------------------------------------------------------------------------
@@ -630,7 +643,7 @@
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE COMPUTE_KZ( w, c, kz, c_bar, PS )
+      SUBROUTINE COMPUTE_KZ( w, c, kz, c_bar, PS, NON_ZERO_STEPS )
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
@@ -641,9 +654,10 @@
 ! 
         REAL*8,     INTENT(IN)    :: w(IIPAR, JJPAR, LLPAR)
         REAL*8,     INTENT(IN)    :: c(IIPAR, JJPAR, LLPAR)
-        REAL*8,     INTENT(OUT)   :: kz(72, 46, LLPAR)
+        REAL*8,     INTENT(INOUT)   :: kz(72, 46, LLPAR)
         REAL*8,     INTENT(IN)    :: PS(:,:)
-        REAL*8, TARGET, INTENT(OUT)   :: c_bar(72, 46, LLPAR)
+        REAL*8, TARGET, INTENT(INOUT)   :: c_bar(72, 46, LLPAR)
+        REAL*8 ,    INTENT(INOUT)    :: NON_ZERO_STEPS(72, 46, LLPAR)
 ! !OUTPUT PARAMETERS:
 !
 ! !REVISION HISTORY:
@@ -658,6 +672,8 @@
         REAL*8          :: p_top, p_bot
         REAL*8, POINTER :: cbar(:,:)
         REAL*8          :: dcdz_tmp
+        REAL*8          :: dp_high(IIPAR, JJPAR)
+        REAL*8          :: dp(72, 46, LLPAR)
 ! START EXECUTION
         ! Print info
         WRITE( 6, '(a)' ) 'computing Kz'
@@ -673,17 +689,39 @@
             CALL REGRID(wc, wc_bar)
             cbar => c_bar(:,:,L)
             CALL REGRID(c(:,:,L), cbar)
-            CALL REGRID(w(:,:,L), w_bar)
-            wc_prime(:,:,L) = wc_bar(:,:) - (w_bar(:,:) *c_bar(:,:,L))
+            !CALL REGRID(w(:,:,L), w_bar)
+            wc_prime(:,:,L) = wc_bar(:,:) !- (w_bar(:,:) *c_bar(:,:,L))
         ENDDO
 !$OMP END PARALLEL DO
 
+        DO L = 1, LLPAR
+!$OMP PARALLEL DO       &
+!$OMP DEFAULT( SHARED ) &
+!$OMP PRIVATE( I, J, p_top, p_bot )
+        DO J = 1, JJPAR
+        DO I = 1, IIPAR
+            IF (L == 1) THEN
+            p_top = GET_PCENTER(I,J,L+1, Ap, Bp, PS) * 100.0d0
+            p_bot = GET_PCENTER(I,J,L, Ap, Bp, PS) * 100.0d0
+            ELSE IF (L == 47) THEN 
+            p_top = GET_PCENTER(I,J,L, Ap, Bp, PS) * 100.0d0
+            p_bot = GET_PCENTER(I,J,L-1, Ap, Bp, PS) * 100.0d0
+            ELSE
+            p_top = GET_PCENTER(I,J,L+1, Ap, Bp, PS) * 100.0d0
+            p_bot = GET_PCENTER(I,J,L-1, Ap, Bp, PS) * 100.0d0
+            ENDIF
+            dp_high(I,J) = p_top - p_bot
+        ENDDO
+        ENDDO
+!$OMP END PARALLEL DO
+            CALL REGRID(dp_high, dp(:,:,L))
+        ENDDO
+
+   
         ! vertical gradient 
         DO J = 1, J_4x5
         DO I = 1, I_4x5
-        p_top = GET_PCENTER(I,J,2, Ap, Bp, PS) * 100.0d0
-        p_bot = GET_PCENTER(I,J,1, Ap, Bp, PS) * 100.0d0
-        dcdz(I,J,1) = (c_bar(I,J,2) - c_bar(I,J,1)) / (p_top - p_bot) 
+        dcdz(I,J,1) = (c_bar(I,J,2) - c_bar(I,J,1)) / dp(I,J,1) 
         ENDDO
         ENDDO
 
@@ -693,9 +731,7 @@
         DO L = 2, LLPAR-1
         DO J = 1, J_4x5
         DO I = 1, I_4x5
-        p_top = GET_PCENTER(I,J,L+1, Ap, Bp, PS) * 100.0d0
-        p_bot = GET_PCENTER(I,J,L-1, Ap, Bp, PS) * 100.0d0
-        dcdz(I,J,L) = (c_bar(I,J,L+1) - c_bar(I,J,L-1)) / (p_top - p_bot)
+        dcdz(I,J,L) = (c_bar(I,J,L+1) - c_bar(I,J,L-1)) / dp(I,J,L)
         ENDDO
         ENDDO
         ENDDO
@@ -703,9 +739,7 @@
 
         DO J = 1, J_4x5
         DO I = 1, I_4x5
-        p_top = GET_PCENTER(I,J,LLPAR, Ap, Bp, PS) * 100.0d0
-        p_bot = GET_PCENTER(I,J,46, Ap, Bp, PS) * 100.0d0
-        dcdz(I,J,47) = (c_bar(I,J,47) - c_bar(I,J,46)) / (p_top - p_bot) 
+        dcdz(I,J,47) = (c_bar(I,J,47) - c_bar(I,J,46)) / dp(I,J,47) 
         ENDDO
         ENDDO
 
@@ -719,10 +753,11 @@
         DO L = 1, LLPAR
         DO J = 1, J_4x5
         DO I = 1, I_4x5
-        IF (dcdz(I,J,L) > 1e-38) THEN
-            Kz(I,J,L) = wc_prime(I,J,L) / dcdz(I,J,L)
+        IF (dcdz(I,J,L) > 1e-35) THEN
+            Kz(I,J,L) = Kz(I,J,L) + (wc_prime(I,J,L) / dcdz(I,J,L))
+            NON_ZERO_STEPS(I,J,L) = NON_ZERO_STEPS(I,J,L) + 1
         ELSE
-            Kz(I,J,L) = -9999999999
+            Kz(I,J,L) = Kz(I,J,L) 
         ENDIF
         ENDDO
         ENDDO

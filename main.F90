@@ -51,7 +51,7 @@
     ! Scalars
     INTEGER        :: IM, JM, KM          ! counters for loops            
     INTEGER        :: RC                  ! return int for program success 
-    INTEGER        :: I, J, T
+    INTEGER        :: I, J, L, T
     INTEGER        :: DDATE                 ! diagnostics variables
     INTEGER        :: NUM_ARGS
     CHARACTER(LEN=255), ALLOCATABLE    :: ARGS(:)
@@ -86,6 +86,8 @@
     REAL*8, ALLOCATABLE   :: TRACERFLUX(:,:,:)      ! mass flux of tracer
     REAL*8, ALLOCATABLE   :: Kz(:,:,:)          ! Kz
     REAL*8, ALLOCATABLE   :: c_bar(:,:,:)          ! Kz
+    REAL*8, ALLOCATABLE   :: NON_ZERO_STEPS(:,:,:)
+    REAL*8, ALLOCATABLE   :: wc_prime(:,:,:)
 
     !============================================================================
     ! Code begins here
@@ -116,9 +118,11 @@
     ALLOCATE( wzgneg(IIPAR, JJPAR, LLPAR) )
     ALLOCATE( tracerflux(IIPAR, JJPAR, LLPAR))
     ALLOCATE( Kz(IIPAR, JJPAR, LLPAR) )
+    ALLOCATE( wc_prime(IIPAR, JJPAR, LLPAR) )
 #else 
     ALLOCATE( Kz(72, 46, LLPAR))
     ALLOCATE( c_bar(72, 46, LLPAR))
+    ALLOCATE( NON_ZERO_STEPS(72,46,LLPAR))
 #endif
 
     ! Select timestep based on grid
@@ -170,6 +174,9 @@
       call restart_read(restart, t_inst)
     ENDIF
       t_avg = t_inst
+
+    Kz = 0
+    NON_ZERO_STEPS = 0
 
     ! Read in surface pressure before starting loop
     CALL GeosFp_Read_I3( GET_NYMD(), GET_NHMS(), PS2 )
@@ -235,7 +242,17 @@
 
 #if defined(GRID025x03125)
         ! write out Kz
-        CALL COMPUTE_KZ(wzt, t_inst, Kz, c_bar, PFLT)
+        CALL COMPUTE_KZ(wzt, t_inst, Kz, c_bar, PFLT, NON_ZERO_STEPS)
+
+        IF (ITS_TIME_FOR_MET()) THEN
+
+        DO L = 1, LLPAR
+        DO J = 1, 46
+        DO I = 1, 72
+        Kz(I,J,L) = Kz(I,J,L) / max(NON_ZERO_STEPS(I,J,L), 1.0)
+        ENDDO
+        ENDDO
+        ENDDO
 
         DDATE = GET_NYMD()
         WRITE(fname, '(i8)') DDATE
@@ -247,11 +264,17 @@
         CALL WRITE_KZ(TRIM(fname), DDATE/10000, &
                 MOD(DDATE, 10000)/100, MOD(DDATE, 100), GET_HOUR(), &
                 GET_MINUTE(), GET_SECOND(), Kz, c_bar)
-        
-#else 
+
+        NON_ZERO_STEPS = 0 
+        Kz = 0
+        ENDIF
+#else
+        IF (ITS_TIME_FOR_MET()) THEN 
         ! read in Kz
         print*, GET_NHMS()
         CALL READ_KZ(GET_NYMD(), GET_NHMS(), Kz)
+        ENDIF
+      !CALL COMPUTE_FLUX(DT, Kz, wzt, t_inst, PFLT, TCVV, TRACERFLUX)
 #endif 
 
       CALL DO_ADVECTION(LFILL, DT, PFLT, PS2, U, V, t_inst, TCVV, wzt, RC)
@@ -264,9 +287,20 @@
 #if defined(GRID4x5) || defined(GRID2x25)
         print*, 'sum wc 4x5', sum((wzt / 9.81 ) * (t_inst / TCVV) )
 
-      CALL COMPUTE_FLUX(DT, Kz, t_inst, PS2, TCVV, TRACERFLUX)
-      CALL DO_WC_TRANSPORT(DT, t_inst, PS2, TCVV, TRACERFLUX )
+      CALL COMPUTE_FLUX(DT, Kz, wzt, t_inst, PFLT, TCVV, TRACERFLUX, wc_prime)
+      CALL DO_WC_TRANSPORT(DT, t_inst, PFLT, TCVV, TRACERFLUX )
 
+        DDATE = GET_NYMD()
+        WRITE(fname, '(i8)') DDATE
+        DDATE = GET_NHMS()
+        WRITE(ffname, '(i6.6)') DDATE
+        fname = TRIM(fname) // TRIM(ffname)
+        fname = TRIM(fname) //'.nc'
+        fname = '/n/regal/jacob_lab/kyu/wc_prime/4x5/' // TRIM(fname)
+
+        CALL WRITE_WC(TRIM(fname), DDATE/10000, &
+                MOD(DDATE, 10000)/100, MOD(DDATE, 100), GET_HOUR(), &
+                GET_MINUTE(), GET_SECOND(), wc_prime)
 #endif
 
       !===========================================================================
