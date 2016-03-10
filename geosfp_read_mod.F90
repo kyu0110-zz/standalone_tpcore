@@ -702,6 +702,7 @@ CONTAINS
     ! Read OMEGA
     v_name = "Kz"
     CALL NcRd( Q, fId, TRIM(v_name), st4d, ct4d )
+    WHERE (Q > 1472.0d0) Q = 1472.0d0
     Kz = Q
 
     ! Echo info

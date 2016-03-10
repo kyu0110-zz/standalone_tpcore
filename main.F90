@@ -86,7 +86,6 @@
     REAL*8, ALLOCATABLE   :: TRACERFLUX(:,:,:)      ! mass flux of tracer
     REAL*8, ALLOCATABLE   :: Kz(:,:,:)          ! Kz
     REAL*8, ALLOCATABLE   :: c_bar(:,:,:)          ! Kz
-    REAL*8, ALLOCATABLE   :: NON_ZERO_STEPS(:,:,:)
     REAL*8, ALLOCATABLE   :: wc_prime(:,:,:)
 
     !============================================================================
@@ -122,7 +121,6 @@
 #else 
     ALLOCATE( Kz(72, 46, LLPAR))
     ALLOCATE( c_bar(72, 46, LLPAR))
-    ALLOCATE( NON_ZERO_STEPS(72,46,LLPAR))
 #endif
 
     ! Select timestep based on grid
@@ -176,7 +174,6 @@
       t_avg = t_inst
 
     Kz = 0
-    NON_ZERO_STEPS = 0
 
     ! Read in surface pressure before starting loop
     CALL GeosFp_Read_I3( GET_NYMD(), GET_NHMS(), PS2 )
@@ -242,14 +239,14 @@
 
 #if defined(GRID025x03125)
         ! write out Kz
-        CALL COMPUTE_KZ(wzt, t_inst, Kz, c_bar, PFLT, NON_ZERO_STEPS)
+        CALL COMPUTE_KZ(wzt, t_inst, Kz, c_bar, PFLT, 100.0d0)
 
         IF (ITS_TIME_FOR_MET()) THEN
 
         DO L = 1, LLPAR
         DO J = 1, 46
         DO I = 1, 72
-        Kz(I,J,L) = Kz(I,J,L) / max(NON_ZERO_STEPS(I,J,L), 1.0)
+        Kz(I,J,L) = Kz(I,J,L) / 36.0d0
         ENDDO
         ENDDO
         ENDDO
@@ -265,7 +262,6 @@
                 MOD(DDATE, 10000)/100, MOD(DDATE, 100), GET_HOUR(), &
                 GET_MINUTE(), GET_SECOND(), Kz, c_bar)
 
-        NON_ZERO_STEPS = 0 
         Kz = 0
         ENDIF
 #else

@@ -29,6 +29,7 @@
       PUBLIC  :: COMPUTE_KZ
       PUBLIC  :: REGRID
       PUBLIC  :: GET_AIR_MASS
+      PUBLIC  :: GET_AIR_DENSITY
 !
 ! !PRIVATE MEMBER FUNCTIONS:
 !
@@ -404,9 +405,6 @@
         DO L = 1, LLPAR 
         DO J = 1, JJPAR
         DO I = 1, IIPAR
-            IF (KZ(I,J,L) < -999999999) THEN
-            TRACERFLUX(I,J,L) = 0d0
-            ELSE 
             IF ( L == 1 ) THEN
             dc = (STT(I,J,L+1) - STT(I,J,L)) / TCVV
             p_bot = GET_PCENTER(I,J,L, Ap, Bp, PS) * 100.0d0
@@ -422,18 +420,17 @@
             ENDIF
 
             dcdp = dc / (p_top - p_bot) 
-            wc_prime(I,J,L) = (1.0d0 * Kz(I,J,L) / 9.81d0) * dcdp - (wz(I,J,L) / 9.81d0 * STT(I,J,L) / TCVV)
+            wc_prime(I,J,L) = (-1.0d0 * Kz(I,J,L) / 9.81d0) * dcdp !- (wz(I,J,L) / 9.81d0 * STT(I,J,L) / TCVV)
             TRACERFLUX(I,J,L) = wc_prime(I,J,L) * AREA_M2(I,J) * DT
             AD = GET_AIR_MASS(I, J, L, PS(I,J))
             BOXMASS = STT(I,J,L) * AD / TCVV
-            IF (abs(TRACERFLUX(I,J,L)) > BOXMASS) THEN
-                IF (TRACERFLUX(I,J,L) > 0 ) THEN
-                TRACERFLUX(I,J,L) = BOXMASS 
-                ELSE
-                TRACERFLUX(I,J,L) = -1.0 * BOXMASS
-                ENDIF
-            ENDIF
-            ENDIF
+            !IF (abs(TRACERFLUX(I,J,L)) > BOXMASS) THEN
+            !    IF (TRACERFLUX(I,J,L) > 0 ) THEN
+            !    TRACERFLUX(I,J,L) = BOXMASS 
+            !    ELSE
+            !    TRACERFLUX(I,J,L) = -1.0 * BOXMASS
+            !    ENDIF
+            !ENDIF
         ENDDO
         ENDDO
         ENDDO
@@ -643,7 +640,7 @@
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE COMPUTE_KZ( w, c, kz, c_bar, PS, NON_ZERO_STEPS )
+      SUBROUTINE COMPUTE_KZ( w, c, kz, c_bar, PS, max_kz )
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
@@ -657,7 +654,7 @@
         REAL*8,     INTENT(INOUT)   :: kz(72, 46, LLPAR)
         REAL*8,     INTENT(IN)    :: PS(:,:)
         REAL*8, TARGET, INTENT(INOUT)   :: c_bar(72, 46, LLPAR)
-        REAL*8 ,    INTENT(INOUT)    :: NON_ZERO_STEPS(72, 46, LLPAR)
+        REAL*8,     INTENT(IN)      :: max_kz
 ! !OUTPUT PARAMETERS:
 !
 ! !REVISION HISTORY:
@@ -674,6 +671,9 @@
         REAL*8          :: dcdz_tmp
         REAL*8          :: dp_high(IIPAR, JJPAR)
         REAL*8          :: dp(72, 46, LLPAR)
+        REAL*8          :: air_density(47)
+        REAL*8          :: kz_tmp
+        REAL*8          :: max_tmp
 ! START EXECUTION
         ! Print info
         WRITE( 6, '(a)' ) 'computing Kz'
@@ -689,8 +689,8 @@
             CALL REGRID(wc, wc_bar)
             cbar => c_bar(:,:,L)
             CALL REGRID(c(:,:,L), cbar)
-            !CALL REGRID(w(:,:,L), w_bar)
-            wc_prime(:,:,L) = wc_bar(:,:) !- (w_bar(:,:) *c_bar(:,:,L))
+            CALL REGRID(w(:,:,L), w_bar)
+            wc_prime(:,:,L) = wc_bar(:,:) - (w_bar(:,:) *c_bar(:,:,L))
         ENDDO
 !$OMP END PARALLEL DO
 
@@ -718,6 +718,12 @@
         ENDDO
 
    
+        DO L = 1, LLPAR
+            air_density(L) =  GET_AIR_DENSITY(350,L,PS(550,350)) 
+        ENDDO
+
+        print*, air_density
+
         ! vertical gradient 
         DO J = 1, J_4x5
         DO I = 1, I_4x5
@@ -749,15 +755,18 @@
         ! compute Kz
 !$OMP PARALLEL DO           &
 !$OMP DEFAULT( SHARED )     &
-!$OMP PRIVATE( I, J, L )    
+!$OMP PRIVATE( I, J, L, kz_tmp, max_tmp )    
         DO L = 1, LLPAR
         DO J = 1, J_4x5
         DO I = 1, I_4x5
-        IF (dcdz(I,J,L) > 1e-35) THEN
-            Kz(I,J,L) = Kz(I,J,L) + (wc_prime(I,J,L) / dcdz(I,J,L))
-            NON_ZERO_STEPS(I,J,L) = NON_ZERO_STEPS(I,J,L) + 1
-        ELSE
-            Kz(I,J,L) = Kz(I,J,L) 
+        IF (abs(wc_prime(I,J,L)) > 0.0d0) THEN
+            kz_tmp = wc_prime(I,J,L) / dcdz(I,J,L) 
+            max_tmp = max_Kz * (9.81d0**2.0) * (air_density(L)**2.0)
+            IF (kz_tmp > 0.0) THEN
+            Kz(I,J,L) = Kz(I,J,L) + min(kz_tmp, max_tmp)
+            ELSE
+            Kz(I,J,L) = Kz(I,J,L) - max(kz_tmp,-1.0d0*max_tmp)
+            ENDIF
         ENDIF
         ENDDO
         ENDDO
@@ -875,5 +884,67 @@
 
       END FUNCTION GET_AIR_MASS
 !EOC
+!------------------------------------------------------------------------------
+!                  GEOS-Chem Global Chemical Transport Model                  !
+!------------------------------------------------------------------------------
+!BOP
+!
+! !IROUTINE: get_air_density
+!
+! !DESCRIPTION: Function GET\_AIR\_MASS returns the air mass based on the 
+!  pressures returned before and after the call to the GEOS-4/fvDAS TPCORE 
+!  code. (bmy, 6/24/03)
+!\\
+!\\
+! !INTERFACE:
+!
+      FUNCTION GET_AIR_DENSITY( J, L, P_SURF ) RESULT( AIR_DENSITY )
+!
+! !USES:
+!
+      USE CMN_SIZE_MOD               ! Size parameters
+      USE CMN_GCTM_MOD               ! g0_100
+!
+! !INPUT PARAMETERS:
+!
+      INTEGER, INTENT(IN) :: J, L   ! GEOS-Chem lon, lat, level indices
+      REAL*8,  INTENT(IN) :: P_SURF    ! Surface pressure [hPa] at (I,J,L=1)
+
+! 
+! !REVISION HISTORY: 
+!  24 Jun 2003 - R. Yantosca - Initial version
+!  26 Feb 2010 - R. Yantosca - Added ProTeX headers
+!EOP
+!------------------------------------------------------------------------------
+!BOC
+!
+! !LOCAL VARIABLES:
+!
+      INTEGER :: L2
+      REAL*8  :: P_BOT, P_TOP, Z_TOP, Z_BOT, AIR_MASS, AIR_DENSITY
+      
+      !=================================================================
+      ! GET_AIR_MASS begins here!
+      !=================================================================
+      
+      ! Index for Ap, Bp from atmosphere top down to surface
+      ! since the Ap's and Bp's have been flipped for TPCORE
+!      L2       = ( LLPAR + 1 ) - L + 1
+              
+      ! Hybrid-grid formulation for air mass
+      P_BOT    = Ap(L)   + ( Bp(L)   * P_SURF )
+      !P_BOT    = Ap(L2)   + ( Bp(L2)   * P_SURF )
+      P_TOP    = Ap(L+1) + ( Bp(L+1) * P_SURF )
+      !P_TOP    = Ap(L2-1) + ( Bp(L2-1) * P_SURF )
+      AIR_MASS = ( P_BOT - P_TOP ) * G0_100 * A_M2(J)
+
+      Z_BOT = -7400.0 * log(P_BOT / P_SURF)
+      Z_TOP = -7400.0 * log(P_TOP / P_SURF)
+
+      AIR_DENSITY = AIR_MASS / ((Z_TOP - Z_BOT) * A_M2(J))
+
+      END FUNCTION GET_AIR_DENSITY
+!EOC
+
 
       END MODULE ADVECTION_MOD
