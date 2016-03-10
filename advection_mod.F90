@@ -640,7 +640,7 @@
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE COMPUTE_KZ( w, c, kz, c_bar, PS, max_kz )
+      SUBROUTINE COMPUTE_KZ( w, c, kz, c_bar, PS, max_kz, dcdz, wc_prime )
 ! !USES:
         USE CMN_GCTM_MOD
         USE CMN_SIZE_MOD
@@ -655,6 +655,9 @@
         REAL*8,     INTENT(IN)    :: PS(:,:)
         REAL*8, TARGET, INTENT(INOUT)   :: c_bar(72, 46, LLPAR)
         REAL*8,     INTENT(IN)      :: max_kz
+        REAL*8, INTENT(OUT)         :: dcdz(72, 46, LLPAR)
+        REAL*8, INTENT(OUT)         :: wc_prime(72, 46, LLPAR)
+
 ! !OUTPUT PARAMETERS:
 !
 ! !REVISION HISTORY:
@@ -664,8 +667,7 @@
         REAL*8          :: wc(IIPAR, JJPAR)
         REAL*8          :: wc_bar(72, 46)
         REAL*8          :: w_bar(72,46)
-        REAL*8          :: wc_prime(72, 46, LLPAR)
-        REAL*8          :: dcdz(72, 46, LLPAR)
+       
         REAL*8          :: p_top, p_bot
         REAL*8, POINTER :: cbar(:,:)
         REAL*8          :: dcdz_tmp

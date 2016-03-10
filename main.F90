@@ -87,6 +87,7 @@
     REAL*8, ALLOCATABLE   :: Kz(:,:,:)          ! Kz
     REAL*8, ALLOCATABLE   :: c_bar(:,:,:)          ! Kz
     REAL*8, ALLOCATABLE   :: wc_prime(:,:,:)
+    REAL*8, ALLOCATABLE   :: dcdp(:,:,:)
 
     !============================================================================
     ! Code begins here
@@ -121,6 +122,8 @@
 #else 
     ALLOCATE( Kz(72, 46, LLPAR))
     ALLOCATE( c_bar(72, 46, LLPAR))
+    ALLOCATE( dcdp(72, 46, LLPAR) )
+    ALLOCATE( wc_prime(72, 46, LLPAR) )
 #endif
 
     ! Select timestep based on grid
@@ -239,7 +242,7 @@
 
 #if defined(GRID025x03125)
         ! write out Kz
-        CALL COMPUTE_KZ(wzt, t_inst, Kz, c_bar, PFLT, 100.0d0)
+        CALL COMPUTE_KZ(wzt, t_inst, Kz, c_bar, PFLT, 100.0d0, dcdp, wc_prime)
 
         IF (ITS_TIME_FOR_MET()) THEN
 
@@ -251,19 +254,19 @@
         ENDDO
         ENDDO
 
+        Kz = 0
+        ENDIF
+
         DDATE = GET_NYMD()
         WRITE(fname, '(i8)') DDATE
         DDATE = GET_NHMS()
         WRITE(ffname, '(i6.6)') DDATE
         fname = TRIM(fname) // TRIM(ffname)
         fname = TRIM(fname) //'.nc'
-        fname = '/n/regal/jacob_lab/kyu/Kz/' // TRIM(fname)
-        CALL WRITE_KZ(TRIM(fname), DDATE/10000, &
+        fname = '/n/regal/jacob_lab/kyu/wc_prime_withdcdp/' // TRIM(fname)
+        CALL WRITE_WCprime(TRIM(fname), DDATE/10000, &
                 MOD(DDATE, 10000)/100, MOD(DDATE, 100), GET_HOUR(), &
-                GET_MINUTE(), GET_SECOND(), Kz, c_bar)
-
-        Kz = 0
-        ENDIF
+                GET_MINUTE(), GET_SECOND(), wc_prime, dcdp)
 #else
         IF (ITS_TIME_FOR_MET()) THEN 
         ! read in Kz

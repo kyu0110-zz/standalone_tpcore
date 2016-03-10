@@ -15,6 +15,7 @@
   PUBLIC :: WRITE_DIAGNOSTICS
   PUBLIC :: WRITE_wc
   PUBLIC :: WRITE_KZ
+  PUBLIC :: WRITE_WCprime
 !
 ! !REMARKS:
 !
@@ -435,5 +436,114 @@ CONTAINS
   CALL NC_CLOSE( fId )
 
   END SUBROUTINE WRITE_KZ
+!--------------------------------------------------------------------------------
+!BOP
+!
+! !ROUTINE: WRITE_WCprime
+! 
+! !DESCRIPTION:
+!
+! !INTERFACE:
+!
+  SUBROUTINE WRITE_WCprime ( ncFile, YYYY, MM, DD, h, m, s, wc_prime, dcdp )
+!
+! !USES:
+!
+  USE CMN_SIZE_MOD
+  USE m_netCDF_io_define
+  USE Ncdf_Mod,                 ONLY : NC_Create, NC_Close
+  USE Ncdf_Mod,                 ONLY : NC_Var_Def, NC_Var_Write
+  USE JulDay_Mod,               ONLY : JulDay
+  USE Grid_Mod,                 ONLY : get_XMID, get_YMID, get_area_m2
+! 
+! !INPUT PARAMETERS:
+!
+  CHARACTER(LEN=*), INTENT(IN) :: ncFile
+  INTEGER,          INTENT(IN) :: YYYY
+  INTEGER,          INTENT(IN) :: MM
+  INTEGER,          INTENT(IN) :: DD
+  INTEGER,          INTENT(IN) :: h, m, s
+  REAL(dp),         INTENT(IN) :: wc_prime(:,:,:)
+  REAL(dp),         INTENT(IN) :: dcdp(:,:,:)
+!
+! !OUTPUT PARAMETERS:
+!
+! !REVISION HISTORY:
+! 02 Aug 2015 - K. Yu   - Initial version
+!EOP
+!--------------------------------------------------------------------------------
+!BOC
+! 
+! !LOCAL VARIABLES:
+!
+  INTEGER               :: I, J, K
+  REAL(dp)              :: GMT, JD1, JD1985, JD_DELTA, THISDAY
+  REAL(sp)              :: TMP, JD_DELTA_RND
+  REAL(sp), POINTER     :: Arr1D(:)
+  INTEGER,  POINTER     :: Int1D(:)
+  REAL(sp), POINTER     :: Arr3D(:,:,:)
+  REAL(sp), POINTER     :: Arr4D(:,:,:,:)
+  INTEGER               :: fId, lonId, latId, levId, TimeId
+  INTEGER               :: VarCt
+  INTEGER               :: nTime
+  INTEGER               :: Prc
+  CHARACTER(LEN=31)     :: timeunit, myName, myUnit
+  REAL(sp), POINTER     :: nctime(:)
+  REAL(dp)              :: XMID(72)
+  REAL(dp)              :: YMID(46)
+  REAL(dp)              :: A_M2(72,46)
+  REAL(sp), POINTER     :: AREA_M2(:,:) 
+
+  print*, 'ncfile = ', ncfile
+  nTime = 1
+
+  ! Create output file
+  CALL NC_CREATE( ncFile, 72,  46,  LLPAR,  nTime, &
+                  fId,    lonId, latId, levId, timeId, VarCt )
+
+  print*, 'timeid', timeid
+
+  ! Add time 
+  timeunit = 'hours since 1985-01-01 00:00:00 GMT'
+  GMT = REAL(h,dp) + (REAL(m,dp)/60.0_dp) + (REAL(s,dp)/3600.0_dp)
+  THISDAY  = DD + ( GMT / 24.0_dp )
+  JD1      = JULDAY ( YYYY, MM, THISDAY ) 
+  JD1985   = JULDAY ( 1985, 1, 0.0_dp ) + 1.0_dp
+  JD_DELTA = (JD1 - JD1985) * 24.0_dp
+
+  ! Roun to 2 digits after comma
+  JD_DELTA_RND = REAL(JD_DELTA,sp) * 100.0_sp
+  TMP          = ANINT( JD_DELTA_RND )
+  JD_DELTA_RND = TMP / 100.0_sp
+  
+  ALLOCATE( nctime(1) ) 
+  nctime(1) = JD_DELTA_RND
+  CALL NC_VAR_DEF( fId, -1, -1, -1, timeId, & 
+                   'time', 'Time', TRIM(timeunit), 4, VarCt ) 
+  CALL NC_VAR_WRITE( fId, 'time', Arr1D=nctime )
+  DEALLOCATE( nctime ) 
+
+  ! Write out wc_prime 
+  ALLOCATE ( Arr3D(72, 46, LLPAR) )
+  print*, size(wc_prime)
+  print*, size(Arr3D)
+  Arr3D = wc_prime
+  CALL NC_VAR_DEF( fId, lonId, latId, levId, -1, & 
+                   'wc_prime', 'wc_prime', 'kg Rn m^-2 s^-2', 4, VarCt )
+  CALL NC_VAR_WRITE( fId, 'wc_prime', Arr3D=Arr3D)  
+  DEALLOCATE( Arr3D )
+
+  ! Write out dcdp
+  ALLOCATE ( Arr3D(72, 46, LLPAR) )
+  Arr3D = dcdp
+  CALL NC_VAR_DEF( fId, lonId, latId, levId, -1, & 
+                   'dcdp', 'dcpd', 'Pa^-1', 4, VarCt )
+  CALL NC_VAR_WRITE( fId, 'dcdp', Arr3D=Arr3D)  
+  DEALLOCATE( Arr3D )
+
+  ! Close file
+  CALL NC_CLOSE( fId )
+
+  END SUBROUTINE WRITE_WCprime
 
 END MODULE DIAGNOSTIC_MOD 
