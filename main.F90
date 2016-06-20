@@ -268,11 +268,6 @@
                 MOD(DDATE, 10000)/100, MOD(DDATE, 100), GET_HOUR(), &
                 GET_MINUTE(), GET_SECOND(), wc_prime, dcdp)
 #else
-        IF (ITS_TIME_FOR_MET()) THEN 
-        ! read in Kz
-        print*, GET_NHMS()
-        CALL READ_KZ(GET_NYMD(), GET_NHMS(), Kz)
-        ENDIF
       !CALL COMPUTE_FLUX(DT, Kz, wzt, t_inst, PFLT, TCVV, TRACERFLUX)
 #endif 
 
@@ -286,7 +281,7 @@
 #if defined(GRID4x5) || defined(GRID2x25)
         print*, 'sum wc 4x5', sum((wzt / 9.81 ) * (t_inst / TCVV) )
 
-      CALL COMPUTE_FLUX(DT, Kz, wzt, t_inst, PFLT, TCVV, TRACERFLUX, wc_prime)
+      CALL COMPUTE_FLUX(DT, t_inst, PFLT, TCVV, TRACERFLUX, wc_prime)
       CALL DO_WC_TRANSPORT(DT, t_inst, PFLT, TCVV, TRACERFLUX )
 
         DDATE = GET_NYMD()
@@ -295,7 +290,7 @@
         WRITE(ffname, '(i6.6)') DDATE
         fname = TRIM(fname) // TRIM(ffname)
         fname = TRIM(fname) //'.nc'
-        fname = '/n/regal/jacob_lab/kyu/wc_prime/4x5/' // TRIM(fname)
+        fname = '/n/regal/jacob_lab/kyu/wc_prime/regression/4x5/' // TRIM(fname)
 
         CALL WRITE_WC(TRIM(fname), DDATE/10000, &
                 MOD(DDATE, 10000)/100, MOD(DDATE, 100), GET_HOUR(), &

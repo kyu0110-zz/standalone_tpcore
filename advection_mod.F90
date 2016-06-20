@@ -353,7 +353,7 @@
 !------------------------------------------------------------------------------
 !BOC
 ! !INTERFACE:
-      SUBROUTINE COMPUTE_FLUX( DT, KZ, wz, &
+      SUBROUTINE COMPUTE_FLUX( DT, &
                               STT, PS, TCVV, TRACERFLUX, wc_prime)
 ! !USES:
         USE CMN_GCTM_MOD
@@ -364,8 +364,6 @@
 ! !INPUT PRAMETERS: 
 ! 
         REAL*8,         INTENT(IN)      :: DT
-        REAL*8,         INTENT(IN)      :: KZ(IIPAR,JJPAR,LLPAR)
-        REAL*8,         INTENT(IN)      :: wz(IIPAR,JJPAR,LLPAR)
         REAL*8,         INTENT(INOUT)   :: STT(IIPAR,JJPAR,LLPAR)
         REAL*8,         INTENT(IN)      :: TCVV
         REAL*8,         INTENT(IN)      :: PS(:,:)
@@ -420,17 +418,17 @@
             ENDIF
 
             dcdp = dc / (p_top - p_bot) 
-            wc_prime(I,J,L) = (-1.0d0 * Kz(I,J,L) / 9.81d0) * dcdp !- (wz(I,J,L) / 9.81d0 * STT(I,J,L) / TCVV)
+            wc_prime(I,J,L) = 3.236d-23 - 86.04d0 * dcdp - 2.155d-27 *p_top + 8.582d-4 * dcdp * p_top
             TRACERFLUX(I,J,L) = wc_prime(I,J,L) * AREA_M2(I,J) * DT
             AD = GET_AIR_MASS(I, J, L, PS(I,J))
             BOXMASS = STT(I,J,L) * AD / TCVV
-            !IF (abs(TRACERFLUX(I,J,L)) > BOXMASS) THEN
-            !    IF (TRACERFLUX(I,J,L) > 0 ) THEN
-            !    TRACERFLUX(I,J,L) = BOXMASS 
-            !    ELSE
-            !    TRACERFLUX(I,J,L) = -1.0 * BOXMASS
-            !    ENDIF
-            !ENDIF
+            IF (abs(TRACERFLUX(I,J,L)) > BOXMASS) THEN
+                IF (TRACERFLUX(I,J,L) > 0 ) THEN
+                TRACERFLUX(I,J,L) = BOXMASS 
+                ELSE
+                TRACERFLUX(I,J,L) = -1.0 * BOXMASS
+                ENDIF
+            ENDIF
         ENDDO
         ENDDO
         ENDDO
